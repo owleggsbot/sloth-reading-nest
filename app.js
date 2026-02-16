@@ -26,6 +26,12 @@ const state = {
   shelfFilter: {
     q: '',
     status: 'all'
+  },
+  goal: {
+    mode: 'minutes', // 'minutes' | 'pages'
+    minutesPerWeek: 120,
+    pagesPerWeek: 200,
+    lastCelebrateAt: 0,
   }
 };
 
@@ -66,6 +72,13 @@ function load(){
       state.timer.totalSec = sec;
       state.timer.leftSec = sec;
     }
+    if(data.goal && typeof data.goal === 'object'){
+      const g = data.goal;
+      state.goal.mode = (g.mode === 'pages') ? 'pages' : 'minutes';
+      state.goal.minutesPerWeek = clamp(safeInt(g.minutesPerWeek) ?? state.goal.minutesPerWeek, 10, 2000);
+      state.goal.pagesPerWeek = clamp(safeInt(g.pagesPerWeek) ?? state.goal.pagesPerWeek, 1, 20000);
+      state.goal.lastCelebrateAt = safeInt(g.lastCelebrateAt) ?? 0;
+    }
   }catch(e){
     console.warn('load failed', e);
   }
@@ -79,6 +92,12 @@ function save(){
     nowId: state.nowId,
     prompt: state.prompt,
     timerMinutes,
+    goal: {
+      mode: state.goal.mode,
+      minutesPerWeek: state.goal.minutesPerWeek,
+      pagesPerWeek: state.goal.pagesPerWeek,
+      lastCelebrateAt: state.goal.lastCelebrateAt || 0,
+    }
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
@@ -176,7 +195,8 @@ function exportData(){
       sessions: state.sessions,
       nowId: state.nowId,
       prompt: state.prompt,
-      timerMinutes: Math.round(state.timer.totalSec/60)
+      timerMinutes: Math.round(state.timer.totalSec/60),
+      goal: state.goal,
     }
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
@@ -253,6 +273,13 @@ function importDataFromFile(file){
         state.timer.totalSec = clamp(m, 5, 180) * 60;
         state.timer.leftSec = state.timer.totalSec;
         $('#sessionMinutes').value = String(clamp(m, 5, 180));
+      }
+      if(d.goal && typeof d.goal === 'object'){
+        const g = d.goal;
+        state.goal.mode = (g.mode === 'pages') ? 'pages' : 'minutes';
+        state.goal.minutesPerWeek = clamp(safeInt(g.minutesPerWeek) ?? state.goal.minutesPerWeek, 10, 2000);
+        state.goal.pagesPerWeek = clamp(safeInt(g.pagesPerWeek) ?? state.goal.pagesPerWeek, 1, 20000);
+        state.goal.lastCelebrateAt = safeInt(g.lastCelebrateAt) ?? 0;
       }
       save();
       render();
@@ -392,6 +419,7 @@ function logSession(pagesRead, moodAfter){
   state.sessions.unshift(entry);
   save();
   render();
+  maybeCelebrateGoal();
   toast('Session logged. Slow wins.');
 }
 
@@ -555,6 +583,12 @@ function drawCard(){
     chips.push(`7d minutes: ${stats.min7}`);
     chips.push(`today: ${stats.minToday} min`);
     chips.push(`sessions: ${stats.sessionCount}`);
+
+    const gp = computeGoalProgress();
+    if(gp.target > 0){
+      const unit = gp.mode === 'pages' ? 'p' : 'min';
+      chips.push(`goal (7d): ${gp.value}/${gp.target} ${unit}${gp.reached ? ' ✓' : ''}`);
+    }
   }
   if(snap.s){
     chips.push(`status: ${snap.s}`);
@@ -653,6 +687,59 @@ function computeStats(){
   const min7 = state.sessions.filter(s => (now - s.at) < 7*864e5).reduce((a,s)=>a+s.minutes,0);
   const minToday = state.sessions.filter(s => new Date(s.at).toDateString() === new Date().toDateString()).reduce((a,s)=>a+s.minutes,0);
   return { min7, minToday, sessionCount: state.sessions.length };
+}
+
+function computeGoalProgress(){
+  const now = Date.now();
+  const weekMs = 7*864e5;
+  const recent = state.sessions.filter(s => (now - s.at) < weekMs);
+  const min7 = recent.reduce((a,s)=>a + (s.minutes||0), 0);
+  const pages7 = recent.reduce((a,s)=>a + (s.pagesRead||0), 0);
+
+  const mode = (state.goal.mode === 'pages') ? 'pages' : 'minutes';
+  const target = mode === 'pages' ? (state.goal.pagesPerWeek||0) : (state.goal.minutesPerWeek||0);
+  const value = mode === 'pages' ? pages7 : min7;
+  const pct = target > 0 ? clamp(value/target, 0, 2) : 0;
+  const reached = target > 0 && value >= target;
+
+  // gentle "on track" heuristic: compare to expected pace for the current weekday (Mon=1..Sun=7)
+  const dow = (new Date()).getDay(); // 0..6 (Sun..Sat)
+  const daysIntoWeek = ((dow + 6) % 7) + 1; // Mon=1..Sun=7
+  const expected = target > 0 ? (target * (daysIntoWeek/7)) : 0;
+  const onTrack = target > 0 ? (value >= expected) : false;
+
+  const todaySuggestion = target > 0 ? Math.max(1, Math.round(target/7)) : 0;
+
+  return {
+    mode,
+    target,
+    value,
+    pct,
+    reached,
+    onTrack,
+    todaySuggestion,
+    min7,
+    pages7
+  };
+}
+
+function goalValueLabel(mode, n){
+  if(mode === 'pages') return `${n} pages`;
+  return `${n} min`;
+}
+
+function maybeCelebrateGoal(){
+  if(state._snapshot) return;
+  const g = computeGoalProgress();
+  if(!g.reached) return;
+
+  const now = Date.now();
+  // celebrate at most once per ~18h to avoid spam
+  if(state.goal.lastCelebrateAt && (now - state.goal.lastCelebrateAt) < 18*3600e3) return;
+
+  state.goal.lastCelebrateAt = now;
+  save();
+  toast('Weekly goal reached. Soft high-five.');
 }
 
 // ---- Rendering ----
@@ -769,6 +856,85 @@ function renderSessions(){
   }
 }
 
+function renderGoals(){
+  const el = $('#goals');
+  if(!el) return;
+  if(state._snapshot){
+    el.innerHTML = '';
+    return;
+  }
+
+  const g = computeGoalProgress();
+  const pct = Math.round(g.pct*100);
+  const vibe = g.reached ? 'goal reached' : (g.onTrack ? 'on track' : 'still growing');
+
+  el.innerHTML = `
+    <div class="goals__head">
+      <div>
+        <div class="goals__title">Weekly goal</div>
+        <div class="goals__meta muted">Last 7 days · ${escapeHtml(vibe)} · today suggestion: ${escapeHtml(goalValueLabel(g.mode, g.todaySuggestion))}</div>
+      </div>
+      <button id="btnEditGoal" class="btn btn--ghost" type="button">Edit</button>
+    </div>
+
+    <div class="goals__bar" role="progressbar" aria-valuemin="0" aria-valuemax="${g.target}" aria-valuenow="${g.value}" aria-label="Weekly goal progress">
+      <div class="goals__fill" style="width:${clamp(pct,0,100)}%"></div>
+    </div>
+
+    <div class="goals__numbers">${escapeHtml(goalValueLabel(g.mode, g.value))} / ${escapeHtml(goalValueLabel(g.mode, g.target))}</div>
+
+    <form id="goalForm" class="goals__form" hidden>
+      <div class="form__row">
+        <label>
+          Goal type
+          <select id="goalMode" class="select">
+            <option value="minutes">Minutes / week</option>
+            <option value="pages">Pages / week</option>
+          </select>
+        </label>
+        <label>
+          Target
+          <input id="goalTarget" inputmode="numeric" pattern="[0-9]*" placeholder="120" />
+        </label>
+      </div>
+      <div class="row gap">
+        <button class="btn" type="submit">Save goal</button>
+        <button id="btnCancelGoal" class="btn btn--ghost" type="button">Cancel</button>
+      </div>
+    </form>
+
+    ${g.reached ? `<div class="goals__celebrate" aria-live="polite">A tiny celebration: you did it.</div>` : ''}
+  `;
+
+  // wire lightweight form toggle
+  const btnEdit = $('#btnEditGoal');
+  const form = $('#goalForm');
+  const btnCancel = $('#btnCancelGoal');
+  const modeSel = $('#goalMode');
+  const targetIn = $('#goalTarget');
+
+  if(btnEdit && form && modeSel && targetIn){
+    modeSel.value = g.mode;
+    targetIn.value = String(g.target || (g.mode === 'pages' ? 200 : 120));
+
+    btnEdit.onclick = ()=>{ form.hidden = !form.hidden; };
+    if(btnCancel) btnCancel.onclick = ()=>{ form.hidden = true; };
+
+    form.onsubmit = (e)=>{
+      e.preventDefault();
+      const mode = (modeSel.value === 'pages') ? 'pages' : 'minutes';
+      const target = clamp(safeInt(targetIn.value) ?? 0, 0, mode === 'pages' ? 20000 : 2000);
+      state.goal.mode = mode;
+      if(mode === 'pages') state.goal.pagesPerWeek = Math.max(1, target || 200);
+      else state.goal.minutesPerWeek = Math.max(10, target || 120);
+      save();
+      form.hidden = true;
+      renderGoals();
+      drawCard();
+    };
+  }
+}
+
 function renderStats(){
   const el = $('#stats');
   if(state._snapshot){
@@ -803,6 +969,7 @@ function render(){
   renderNow();
   renderPrompt();
   renderTimer();
+  renderGoals();
   renderStats();
   renderSessions();
   renderShelf();
