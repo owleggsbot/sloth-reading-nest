@@ -22,6 +22,10 @@ const state = {
   card: {
     includeStats: true,
     includePrompt: true,
+  },
+  shelfFilter: {
+    q: '',
+    status: 'all'
   }
 };
 
@@ -695,12 +699,30 @@ function renderShelf(){
     el.innerHTML = '<p class="muted">Open without a #snap link to use your shelf.</p>';
     return;
   }
+
+  const q = (state.shelfFilter.q || '').trim().toLowerCase();
+  const status = state.shelfFilter.status || 'all';
+  const filtered = state.books.filter(b => {
+    if(status !== 'all' && b.status !== status) return false;
+    if(!q) return true;
+    const hay = [b.title, b.author, b.notes].filter(Boolean).join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+
   if(!state.books.length){
     el.innerHTML = '<p class="muted">Your shelf is empty. Add a book. Name it something dramatic.</p>';
     return;
   }
+  if(!filtered.length){
+    el.innerHTML = `
+      <p class="muted">No matches for <strong>${escapeHtml(q || '—')}</strong> (${escapeHtml(status)}).</p>
+      <p class="muted">Tip: clear filters to see your full shelf.</p>
+    `;
+    return;
+  }
+
   el.innerHTML = '';
-  for(const b of state.books){
+  for(const b of filtered){
     const div = document.createElement('div');
     div.className = 'book';
     const meta = [b.author ? `by ${b.author}` : null, b.pages ? `${b.pages} pages` : null, `status: ${b.status}`].filter(Boolean).join(' · ');
@@ -790,6 +812,31 @@ function render(){
 // ---- Events ----
 function wire(){
   tryLoadSnapshotFromHash();
+
+  // shelf filters
+  const shelfSearch = $('#shelfSearch');
+  const shelfStatus = $('#shelfStatus');
+  const btnClearShelfFilters = $('#btnClearShelfFilters');
+  if(shelfSearch && shelfStatus && btnClearShelfFilters){
+    shelfSearch.value = state.shelfFilter.q || '';
+    shelfStatus.value = state.shelfFilter.status || 'all';
+
+    shelfSearch.addEventListener('input', (e)=>{
+      state.shelfFilter.q = e.target.value;
+      renderShelf();
+    });
+    shelfStatus.addEventListener('change', (e)=>{
+      state.shelfFilter.status = e.target.value;
+      renderShelf();
+    });
+    btnClearShelfFilters.addEventListener('click', ()=>{
+      state.shelfFilter.q = '';
+      state.shelfFilter.status = 'all';
+      shelfSearch.value = '';
+      shelfStatus.value = 'all';
+      renderShelf();
+    });
+  }
 
   // timer length
   $('#sessionMinutes').addEventListener('change', (e)=>{

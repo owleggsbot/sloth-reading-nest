@@ -140,12 +140,24 @@
     <section class="card">
       <div class="card__head">
         <h2>Your shelf</h2>
-        <div class="row gap">
-          <button id="btnNew" class="btn btn--ghost" type="button">New book</button>
-          <button id="btnExportData" class="btn btn--ghost" type="button">Export data (JSON)</button>
-          <button id="btnExportCSV" class="btn btn--ghost" type="button">Export sessions (CSV)</button>
-          <button id="btnImportData" class="btn btn--ghost" type="button">Import</button>
-          <input id="importFile" type="file" accept="application/json" hidden />
+        <div>
+          <div class="row gap">
+            <button id="btnNew" class="btn btn--ghost" type="button">New book</button>
+            <button id="btnExportData" class="btn btn--ghost" type="button">Export data (JSON)</button>
+            <button id="btnExportCSV" class="btn btn--ghost" type="button">Export sessions (CSV)</button>
+            <button id="btnImportData" class="btn btn--ghost" type="button">Import</button>
+            <input id="importFile" type="file" accept="application/json" hidden />
+          </div>
+          <div class="shelfFilters" aria-label="Shelf filters">
+            <input id="shelfSearch" placeholder="Search title / author / notes" aria-label="Search your shelf" />
+            <select id="shelfStatus" class="select" aria-label="Filter shelf by status">
+              <option value="all" selected>All statuses</option>
+              <option value="reading">Reading</option>
+              <option value="tbr">To read</option>
+              <option value="finished">Finished</option>
+            </select>
+            <button id="btnClearShelfFilters" class="btn btn--ghost" type="button">Clear</button>
+          </div>
         </div>
       </div>
       <div class="shelf" id="shelf"></div>

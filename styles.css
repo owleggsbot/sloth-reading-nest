@@ -93,6 +93,15 @@ label{display:flex; flex-direction:column; gap:6px; font-size:13px; color: var(-
 .form{margin-top:10px}
 .form__row{display:flex; gap:10px; margin:10px 0}
 
+.shelfFilters{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-top:10px;
+}
+.shelfFilters > *{flex: 1 1 180px}
+.shelfFilters > button{flex: 0 0 auto}
+
 .details summary{cursor:pointer; color: var(--muted); font-weight:700}
 .details{margin-top:12px}
 
