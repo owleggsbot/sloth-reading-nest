@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#1a2b22" />
+  <meta name="description" content="Sloth Reading Nest — an offline-first, cozy reading tracker with session timer and shareable reading cards." />
+  <title>Sloth Reading Nest</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icon-192.png" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img class="brand__icon" src="./icon.svg" alt="" />
+      <div>
+        <h1>Sloth Reading Nest</h1>
+        <p class="sub">Offline-first reading tracker + gentle session timer. No accounts. No cloud. Just you and the leaves.</p>
+      </div>
+    </div>
+    <div class="top__actions">
+      <button id="btnInstall" class="btn btn--ghost" type="button" hidden>Install</button>
+      <button id="btnExport" class="btn" type="button">Export reading card</button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <div class="card__head">
+        <h2>Now reading</h2>
+        <div class="row gap">
+          <button id="btnShare" class="btn btn--ghost" type="button" title="Copy a shareable snapshot link">Copy share link</button>
+          <button id="btnRandomPrompt" class="btn btn--ghost" type="button">New cozy prompt</button>
+        </div>
+      </div>
+
+      <div id="nowReading" class="now"></div>
+
+      <div class="prompt" id="promptBox" aria-live="polite"></div>
+
+      <details class="details">
+        <summary>Add / edit book</summary>
+        <form id="bookForm" class="form" autocomplete="off">
+          <input type="hidden" id="bookId" />
+          <div class="form__row">
+            <label>
+              Title
+              <input id="title" required maxlength="120" placeholder="The Slowest Chapter" />
+            </label>
+            <label>
+              Author
+              <input id="author" maxlength="120" placeholder="A. Sloth" />
+            </label>
+          </div>
+          <div class="form__row">
+            <label>
+              Total pages (optional)
+              <input id="pages" inputmode="numeric" pattern="[0-9]*" placeholder="320" />
+            </label>
+            <label>
+              Status
+              <select id="status">
+                <option value="reading">Reading</option>
+                <option value="tbr">To read</option>
+                <option value="finished">Finished</option>
+              </select>
+            </label>
+          </div>
+          <div class="form__row">
+            <label class="grow">
+              Notes (optional)
+              <textarea id="notes" rows="3" maxlength="800" placeholder="What does this book smell like? Moss? Tea?" ></textarea>
+            </label>
+          </div>
+          <div class="row gap">
+            <button class="btn" type="submit">Save</button>
+            <button id="btnCancelEdit" class="btn btn--ghost" type="button">Cancel</button>
+          </div>
+        </form>
+      </details>
+    </section>
+
+    <section class="card">
+      <div class="card__head">
+        <h2>Session timer</h2>
+        <div class="row gap">
+          <select id="sessionMinutes" class="select" aria-label="Session length">
+            <option value="10">10 min</option>
+            <option value="15">15 min</option>
+            <option value="20" selected>20 min</option>
+            <option value="30">30 min</option>
+            <option value="45">45 min</option>
+            <option value="60">60 min</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="timer">
+        <div class="timer__face">
+          <div class="timer__time" id="timerTime">20:00</div>
+          <div class="timer__hint" id="timerHint">Pick a book, then start slow.</div>
+        </div>
+        <div class="row gap timer__actions">
+          <button id="btnStart" class="btn" type="button">Start</button>
+          <button id="btnPause" class="btn btn--ghost" type="button" disabled>Pause</button>
+          <button id="btnReset" class="btn btn--ghost" type="button">Reset</button>
+        </div>
+      </div>
+
+      <form id="logForm" class="form" autocomplete="off">
+        <div class="form__row">
+          <label>
+            Pages read (optional)
+            <input id="pagesRead" inputmode="numeric" pattern="[0-9]*" placeholder="12" />
+          </label>
+          <label>
+            Mood after
+            <select id="moodAfter">
+              <option value="leafy">Leafy</option>
+              <option value="calm" selected>Calm</option>
+              <option value="sparkly">Sparkly</option>
+              <option value="sleepy">Sleepy</option>
+              <option value="proud">Proud</option>
+            </select>
+          </label>
+        </div>
+        <div class="row gap">
+          <button id="btnLog" class="btn" type="submit">Log completed session</button>
+          <button id="btnClearSessions" class="btn btn--ghost" type="button">Clear sessions</button>
+        </div>
+        <p class="muted">Sessions are stored on this device only (localStorage).</p>
+      </form>
+
+      <div class="stats" id="stats"></div>
+      <div class="sessions" id="sessions"></div>
+    </section>
+
+    <section class="card">
+      <div class="card__head">
+        <h2>Your shelf</h2>
+        <div class="row gap">
+          <button id="btnNew" class="btn btn--ghost" type="button">New book</button>
+          <button id="btnExportData" class="btn btn--ghost" type="button">Export data</button>
+          <button id="btnImportData" class="btn btn--ghost" type="button">Import</button>
+          <input id="importFile" type="file" accept="application/json" hidden />
+        </div>
+      </div>
+      <div class="shelf" id="shelf"></div>
+    </section>
+
+    <section class="card">
+      <div class="card__head">
+        <h2>Privacy</h2>
+      </div>
+      <p class="muted">No accounts. No analytics. No servers. Everything stays in your browser unless you export it.</p>
+      <div class="row gap">
+        <button id="btnNuke" class="btn btn--danger" type="button">Delete all local data</button>
+      </div>
+    </section>
+
+    <section class="card card--wide">
+      <div class="card__head">
+        <h2>Reading card preview</h2>
+        <div class="row gap">
+          <label class="row gap muted"><input id="toggleIncludeStats" type="checkbox" checked /> include stats</label>
+          <label class="row gap muted"><input id="toggleIncludePrompt" type="checkbox" checked /> include prompt</label>
+        </div>
+      </div>
+      <div class="preview">
+        <canvas id="cardCanvas" width="1200" height="630" aria-label="Export preview"></canvas>
+        <p class="muted">Tip: your exported card is a PNG (great for Discord/Twitter/printing).</p>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="foot">
+    <p>Made for slow readers. Built for GitHub Pages.</p>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>
