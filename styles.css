@@ -182,3 +182,32 @@ canvas{
   .form__row{flex-direction:column}
   .stats{grid-template-columns:1fr}
 }
+
+@media print{
+  :root{
+    --bg:#ffffff;
+    --text:#111111;
+    --muted:#444444;
+    --line: rgba(0,0,0,.16);
+  }
+  body{
+    background: #ffffff !important;
+    color: #111111 !important;
+  }
+  .top, .foot{display:none !important;}
+
+  /* Show only the shelf card */
+  .grid{display:block; max-width:none; padding:0;}
+  .card{display:none !important; box-shadow:none; background:none; border:none; padding:0;}
+  .card--shelf{display:block !important;}
+  .card--shelf .card__head{margin:0 0 10px;}
+
+  /* Hide controls/inputs in print */
+  button, input, select, textarea, details{display:none !important;}
+
+  /* Shelf formatting */
+  .shelf{gap:8px;}
+  .book{background:none; border:1px solid var(--line); border-radius:12px; padding:10px; page-break-inside:avoid;}
+  .book__actions{display:none !important;}
+  a{color:#111111; text-decoration:none;}
+}
