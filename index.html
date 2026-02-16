@@ -12,6 +12,10 @@
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
+  <nav class="skip" aria-label="Skip links">
+    <a class="skip__link" href="#sectionTimer">Skip to session timer</a>
+    <a class="skip__link" href="#sectionShelf">Skip to your shelf</a>
+  </nav>
   <header class="top">
     <div class="brand">
       <img class="brand__icon" src="./icon.svg" alt="" />
@@ -26,10 +30,10 @@
     </div>
   </header>
 
-  <main class="grid">
-    <section class="card">
+  <main class="grid" id="main">
+    <section class="card" id="sectionNow" role="region" aria-labelledby="hNow">
       <div class="card__head">
-        <h2>Now reading</h2>
+        <h2 id="hNow">Now reading</h2>
         <div class="row gap">
           <button id="btnShare" class="btn btn--ghost" type="button" title="Copy a shareable snapshot link">Copy share link</button>
           <button id="btnRandomPrompt" class="btn btn--ghost" type="button">New cozy prompt</button>
@@ -82,10 +86,12 @@
       </details>
     </section>
 
-    <section class="card">
+    <section class="card" id="sectionTimer" role="region" aria-labelledby="hTimer">
       <div class="card__head">
-        <h2>Session timer</h2>
+        <h2 id="hTimer">Session timer</h2>
         <div class="row gap">
+          <button id="btnShortcuts" class="btn btn--ghost" type="button" title="Keyboard shortcuts">Shortcuts</button>
+          <label class="row gap muted toggle"><input id="toggleShortcuts" type="checkbox" checked /> enable</label>
           <select id="sessionMinutes" class="select" aria-label="Session length">
             <option value="10">10 min</option>
             <option value="15">15 min</option>
@@ -137,9 +143,9 @@
       <div class="sessions" id="sessions"></div>
     </section>
 
-    <section class="card">
+    <section class="card" id="sectionShelf" role="region" aria-labelledby="hShelf">
       <div class="card__head">
-        <h2>Your shelf</h2>
+        <h2 id="hShelf">Your shelf</h2>
         <div>
           <div class="row gap">
             <button id="btnNew" class="btn btn--ghost" type="button">New book</button>
@@ -163,9 +169,9 @@
       <div class="shelf" id="shelf"></div>
     </section>
 
-    <section class="card">
+    <section class="card" id="sectionPrivacy" role="region" aria-labelledby="hPrivacy">
       <div class="card__head">
-        <h2>Privacy</h2>
+        <h2 id="hPrivacy">Privacy</h2>
       </div>
       <p class="muted">No accounts. No analytics. No servers. Everything stays in your browser unless you export it.</p>
       <div class="row gap">
@@ -173,9 +179,9 @@
       </div>
     </section>
 
-    <section class="card card--wide">
+    <section class="card card--wide" id="sectionPreview" role="region" aria-labelledby="hPreview">
       <div class="card__head">
-        <h2>Reading card preview</h2>
+        <h2 id="hPreview">Reading card preview</h2>
         <div class="row gap">
           <label class="row gap muted"><input id="toggleIncludeStats" type="checkbox" checked /> include stats</label>
           <label class="row gap muted"><input id="toggleIncludePrompt" type="checkbox" checked /> include prompt</label>
@@ -192,6 +198,29 @@
   <footer class="foot">
     <p>Made for slow readers. Built for GitHub Pages.</p>
   </footer>
+
+  <dialog id="shortcutsDialog" class="dialog" aria-labelledby="shortcutsTitle">
+    <form method="dialog" class="dialog__panel">
+      <div class="dialog__head">
+        <h2 id="shortcutsTitle">Keyboard shortcuts</h2>
+        <button class="btn btn--ghost" value="close" type="submit">Close</button>
+      </div>
+      <div class="dialog__body">
+        <p class="muted">Tip: shortcuts never fire while you're typing in an input.</p>
+        <ul class="shortcuts">
+          <li><kbd>Space</kbd> start / pause</li>
+          <li><kbd>R</kbd> reset timer</li>
+          <li><kbd>L</kbd> focus log form (press again to submit)</li>
+          <li><kbd>N</kbd> new book</li>
+          <li><kbd>?</kbd> open this help</li>
+        </ul>
+        <label class="row gap muted"><input id="toggleShortcutsInModal" type="checkbox" checked /> enable keyboard shortcuts</label>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="_ariaLive" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
 
   <script src="./app.js"></script>
 </body>

@@ -16,6 +16,18 @@ Just open `index.html` (or use a tiny static server):
 python3 -m http.server 8080
 ```
 
+## Keyboard shortcuts
+
+From the **Session timer** card:
+
+- Space — start / pause timer
+- R — reset timer
+- L — focus log form (press again to submit)
+- N — new book
+- ? — open shortcuts help
+
+Shortcuts never trigger while you're typing in an input, and can be disabled via the **enable** toggle.
+
 ## Notes
 
 This is designed to be fully GitHub Pages compatible.

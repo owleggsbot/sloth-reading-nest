@@ -26,6 +26,9 @@ const state = {
   shelfFilter: {
     q: '',
     status: 'all'
+  },
+  prefs: {
+    shortcutsEnabled: true,
   }
 };
 
@@ -66,6 +69,9 @@ function load(){
       state.timer.totalSec = sec;
       state.timer.leftSec = sec;
     }
+    if(typeof data.shortcutsEnabled === 'boolean'){
+      state.prefs.shortcutsEnabled = data.shortcutsEnabled;
+    }
   }catch(e){
     console.warn('load failed', e);
   }
@@ -79,6 +85,7 @@ function save(){
     nowId: state.nowId,
     prompt: state.prompt,
     timerMinutes,
+    shortcutsEnabled: !!state.prefs.shortcutsEnabled,
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
@@ -264,12 +271,33 @@ function importDataFromFile(file){
   reader.readAsText(file);
 }
 
+function announce(msg, mode='polite'){
+  const live = $('#_ariaLive');
+  if(!live) return;
+  live.setAttribute('aria-live', mode);
+  // Clear then set so SRs re-announce repeated messages.
+  live.textContent = '';
+  // next frame tends to be more reliable than immediate set
+  requestAnimationFrame(()=>{ live.textContent = String(msg || ''); });
+}
+
+function isTypingTarget(el){
+  if(!el) return false;
+  const tag = (el.tagName || '').toLowerCase();
+  if(tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+  if(el.isContentEditable) return true;
+  return false;
+}
+
 function toast(msg){
-  // minimalist toast
+  // minimalist toast (also acts as an aria-live status region)
   let el = $('#_toast');
   if(!el){
     el = document.createElement('div');
     el.id = '_toast';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    el.setAttribute('aria-atomic', 'true');
     el.style.position = 'fixed';
     el.style.left = '50%';
     el.style.bottom = '18px';
@@ -287,6 +315,7 @@ function toast(msg){
     document.body.appendChild(el);
   }
   el.textContent = msg;
+  announce(msg, 'polite');
   el.style.opacity = '1';
   clearTimeout(el._t);
   el._t = setTimeout(()=>{ el.style.opacity='0'; }, 2500);
@@ -317,6 +346,17 @@ function tick(){
     $('#btnPause').disabled = true;
     $('#timerHint').textContent = 'Done. Log it (or just bask).';
     ding();
+    toast('Timer complete. Ready to log.');
+
+    // Move focus to the log form in a non-jarring way (but never while typing).
+    const dialogOpen = !!($('#shortcutsDialog') && $('#shortcutsDialog').open);
+    if(!dialogOpen && !isTypingTarget(document.activeElement)){
+      setTimeout(()=>{
+        const target = $('#pagesRead') || $('#btnLog');
+        if(target) target.focus({preventScroll: false});
+      }, 60);
+    }
+
     return;
   }
   state.timer.raf = requestAnimationFrame(tick);
@@ -329,6 +369,7 @@ function startTimer(){
   $('#btnStart').disabled = true;
   $('#btnPause').disabled = false;
   $('#timerHint').textContent = 'Tiny steps. No sprinting.';
+  toast('Timer started.');
   state.timer.raf = requestAnimationFrame(tick);
 }
 
@@ -340,6 +381,7 @@ function pauseTimer(){
   $('#btnStart').disabled = false;
   $('#btnPause').disabled = true;
   $('#timerHint').textContent = 'Paused. Sloths approve.';
+  toast('Timer paused.');
 }
 
 function resetTimer(){
@@ -351,6 +393,7 @@ function resetTimer(){
   $('#btnStart').disabled = false;
   $('#btnPause').disabled = true;
   $('#timerHint').textContent = 'Pick a book, then start slow.';
+  toast('Timer reset.');
   save();
   renderTimer();
 }
@@ -809,9 +852,88 @@ function render(){
   drawCard();
 }
 
+// ---- Keyboard shortcuts ----
+function setShortcutsEnabled(enabled){
+  state.prefs.shortcutsEnabled = !!enabled;
+  save();
+  const a = $('#toggleShortcuts');
+  const b = $('#toggleShortcutsInModal');
+  if(a) a.checked = state.prefs.shortcutsEnabled;
+  if(b) b.checked = state.prefs.shortcutsEnabled;
+}
+
+function openShortcutsDialog(){
+  const d = $('#shortcutsDialog');
+  if(!d) return;
+  try{ d.showModal(); }catch{ d.setAttribute('open',''); }
+}
+
+function onShortcutKeydown(e){
+  if(!state.prefs.shortcutsEnabled) return;
+  if(e.defaultPrevented) return;
+  if(e.ctrlKey || e.metaKey || e.altKey) return;
+
+  const dialog = $('#shortcutsDialog');
+  if(dialog && dialog.open) return;
+
+  // Never steal keystrokes while typing.
+  if(isTypingTarget(e.target)) return;
+
+  const k = e.key;
+
+  if(k === '?' ){
+    e.preventDefault();
+    openShortcutsDialog();
+    return;
+  }
+
+  if(k === ' '){
+    // If a button/link has focus, let it handle Space naturally.
+    const t = e.target;
+    const tag = (t?.tagName || '').toLowerCase();
+    if(tag === 'button' || tag === 'a' || tag === 'summary') return;
+    e.preventDefault();
+    state.timer.running ? pauseTimer() : startTimer();
+    return;
+  }
+
+  if(k === 'r' || k === 'R'){
+    e.preventDefault();
+    resetTimer();
+    return;
+  }
+
+  if(k === 'n' || k === 'N'){
+    e.preventDefault();
+    openBookForm();
+    return;
+  }
+
+  if(k === 'l' || k === 'L'){
+    e.preventDefault();
+    const logForm = $('#logForm');
+    if(logForm && logForm.contains(document.activeElement)){
+      // Second press while already in the form = submit.
+      if(typeof logForm.requestSubmit === 'function') logForm.requestSubmit();
+      else $('#btnLog')?.click();
+    }else{
+      $('#pagesRead')?.focus({preventScroll:false});
+    }
+    return;
+  }
+}
+
 // ---- Events ----
 function wire(){
+
   tryLoadSnapshotFromHash();
+
+  // shortcuts
+  setShortcutsEnabled(state.prefs.shortcutsEnabled);
+  $('#btnShortcuts')?.addEventListener('click', openShortcutsDialog);
+  $('#toggleShortcuts')?.addEventListener('change', (e)=>setShortcutsEnabled(e.target.checked));
+  $('#toggleShortcutsInModal')?.addEventListener('change', (e)=>setShortcutsEnabled(e.target.checked));
+  document.addEventListener('keydown', onShortcutKeydown, {capture:true});
 
   // shelf filters
   const shelfSearch = $('#shelfSearch');
