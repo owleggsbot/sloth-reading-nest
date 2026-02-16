@@ -26,6 +26,14 @@ const state = {
   shelfFilter: {
     q: '',
     status: 'all'
+  },
+  historyFilter: {
+    bookId: 'all',
+    range: '30',
+    from: '',
+    to: '',
+    q: '',
+    mood: ''
   }
 };
 
@@ -195,7 +203,7 @@ function csvEscape(v){
   return s;
 }
 
-function exportSessionsCSV(){
+function exportSessionsCSV(sessions=null, filename=null){
   // Chronological (oldest first) so it pastes nicely into spreadsheets.
   const byId = new Map(state.books.map(b => [b.id, b]));
   const rows = [];
@@ -210,7 +218,8 @@ function exportSessionsCSV(){
     'mood_after'
   ]);
 
-  const list = [...state.sessions].reverse();
+  const src = Array.isArray(sessions) ? sessions : state.sessions;
+  const list = [...src].reverse();
   for(const s of list){
     const b = byId.get(s.bookId) || {};
     const at = new Date(s.at);
@@ -231,7 +240,7 @@ function exportSessionsCSV(){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `sloth-reading-nest-sessions-${todayKey()}.csv`;
+  a.download = filename || `sloth-reading-nest-sessions-${todayKey()}.csv`;
   a.click();
   setTimeout(()=>URL.revokeObjectURL(url), 500);
   toast('Sessions CSV exported.');
@@ -769,7 +778,126 @@ function renderSessions(){
   }
 }
 
+function parseDateInput(val){
+  // val is yyyy-mm-dd (local). Return ms at local start-of-day.
+  if(!val) return null;
+  const m = String(val).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(!m) return null;
+  const y = Number(m[1]), mo = Number(m[2]) - 1, d = Number(m[3]);
+  const dt = new Date(y, mo, d, 0, 0, 0, 0);
+  return Number.isFinite(dt.getTime()) ? dt.getTime() : null;
+}
+
+function normalizeMood(s){
+  return String(s || '').trim().toLowerCase();
+}
+
+function getHistoryFilteredSessions(){
+  if(state._snapshot) return [];
+  const hf = state.historyFilter;
+  const q = (hf.q || '').trim().toLowerCase();
+  const moodQ = normalizeMood(hf.mood);
+
+  const byId = new Map(state.books.map(b => [b.id, b]));
+
+  const now = Date.now();
+  let startMs = null;
+  let endMs = null; // inclusive
+  if(hf.range === '7' || hf.range === '30' || hf.range === '90'){
+    startMs = now - Number(hf.range)*864e5;
+  }else if(hf.range === 'custom'){
+    const from = parseDateInput(hf.from);
+    const to = parseDateInput(hf.to);
+    if(from !== null) startMs = from;
+    if(to !== null) endMs = to + 864e5 - 1;
+  }
+
+  const out = [];
+  for(const s of state.sessions){
+    if(hf.bookId && hf.bookId !== 'all' && s.bookId !== hf.bookId) continue;
+    if(startMs !== null && s.at < startMs) continue;
+    if(endMs !== null && s.at > endMs) continue;
+    if(moodQ && normalizeMood(s.moodAfter) !== moodQ) continue;
+    if(q){
+      const b = byId.get(s.bookId);
+      const hay = [b?.title, b?.author].filter(Boolean).join(' ').toLowerCase();
+      if(!hay.includes(q)) continue;
+    }
+    out.push(s);
+  }
+  return out;
+}
+
+function renderHistory(){
+  const panel = $('#historyPanel');
+  if(!panel) return;
+
+  const elSummary = $('#historySummary');
+  const elList = $('#historySessions');
+
+  if(state._snapshot){
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+
+  // keep dropdowns fresh as books/sessions change
+  const historyBook = $('#historyBook');
+  const moodList = $('#historyMoodList');
+  if(historyBook){
+    const current = state.historyFilter.bookId || 'all';
+    const opts = ['<option value="all">All books</option>']
+      .concat(state.books
+        .slice()
+        .sort((a,b)=>String(a.title||'').localeCompare(String(b.title||'')))
+        .map(b=>`<option value="${escapeHtml(b.id)}">${escapeHtml(b.title || 'Untitled')}</option>`));
+    historyBook.innerHTML = opts.join('');
+    historyBook.value = current;
+  }
+  if(moodList){
+    const moods = Array.from(new Set(state.sessions.map(s => normalizeMood(s.moodAfter)).filter(Boolean))).sort();
+    moodList.innerHTML = moods.map(m => `<option value="${escapeHtml(m)}"></option>`).join('');
+  }
+
+  const list = getHistoryFilteredSessions();
+  const totalMin = list.reduce((a,s)=>a + (s.minutes || 0), 0);
+  const totalPages = list.reduce((a,s)=>a + (Number.isFinite(s.pagesRead) ? s.pagesRead : 0), 0);
+
+  elSummary.innerHTML = `
+    <div><strong>${list.length}</strong> sessions · <strong>${totalMin}</strong> minutes · <strong>${totalPages}</strong> pages</div>
+  `;
+
+  if(!list.length){
+    elList.innerHTML = '<p class="muted" style="margin:10px 0 0;">No sessions match these filters.</p>';
+    return;
+  }
+
+  const byId = new Map(state.books.map(b => [b.id, b]));
+  elList.innerHTML = '';
+  for(const s of list.slice(0, 40)){
+    const b = byId.get(s.bookId);
+    const div = document.createElement('div');
+    div.className = 'session';
+    div.innerHTML = `
+      <div>
+        <div class="session__title">${escapeHtml(b?.title || 'Unknown book')}</div>
+        <div class="session__meta">${escapeHtml(fmtDate(s.at))} · ${s.minutes} min · mood: ${escapeHtml(s.moodAfter || '—')}${s.pagesRead ? ` · pages: ${s.pagesRead}` : ''}</div>
+      </div>
+      <div class="muted">🦥</div>
+    `;
+    elList.appendChild(div);
+  }
+  if(list.length > 40){
+    const more = document.createElement('div');
+    more.className = 'muted';
+    more.style.marginTop = '8px';
+    more.textContent = `Showing 40 of ${list.length}. Export CSV for the full set.`;
+    elList.appendChild(more);
+  }
+}
+
 function renderStats(){
+
   const el = $('#stats');
   if(state._snapshot){
     el.innerHTML = '';
@@ -805,6 +933,7 @@ function render(){
   renderTimer();
   renderStats();
   renderSessions();
+  renderHistory();
   renderShelf();
   drawCard();
 }
@@ -835,6 +964,83 @@ function wire(){
       shelfSearch.value = '';
       shelfStatus.value = 'all';
       renderShelf();
+    });
+  }
+
+  // history filters
+  const historyBook = $('#historyBook');
+  const historyRange = $('#historyRange');
+  const historyFrom = $('#historyFrom');
+  const historyTo = $('#historyTo');
+  const historySearch = $('#historySearch');
+  const historyMood = $('#historyMood');
+  const btnHistoryClear = $('#btnHistoryClear');
+  const btnHistoryExportCSV = $('#btnHistoryExportCSV');
+  const moodList = $('#historyMoodList');
+
+  if(historyBook && historyRange && historyFrom && historyTo && historySearch && historyMood && btnHistoryClear && btnHistoryExportCSV){
+    // book options
+    historyBook.innerHTML = '<option value="all">All books</option>' + state.books
+      .slice()
+      .sort((a,b)=>String(a.title||'').localeCompare(String(b.title||'')))
+      .map(b=>`<option value="${escapeHtml(b.id)}">${escapeHtml(b.title || 'Untitled')}</option>`)
+      .join('');
+
+    // mood datalist
+    if(moodList){
+      const moods = Array.from(new Set(state.sessions.map(s => normalizeMood(s.moodAfter)).filter(Boolean))).sort();
+      moodList.innerHTML = moods.map(m => `<option value="${escapeHtml(m)}"></option>`).join('');
+    }
+
+    // restore state
+    historyBook.value = state.historyFilter.bookId || 'all';
+    historyRange.value = state.historyFilter.range || '30';
+    historyFrom.value = state.historyFilter.from || '';
+    historyTo.value = state.historyFilter.to || '';
+    historySearch.value = state.historyFilter.q || '';
+    historyMood.value = state.historyFilter.mood || '';
+
+    function syncCustomVisibility(){
+      const show = historyRange.value === 'custom';
+      historyFrom.style.display = show ? '' : 'none';
+      historyTo.style.display = show ? '' : 'none';
+      if(!show){
+        historyFrom.value = '';
+        historyTo.value = '';
+        state.historyFilter.from = '';
+        state.historyFilter.to = '';
+      }
+    }
+    syncCustomVisibility();
+
+    historyBook.addEventListener('change', (e)=>{ state.historyFilter.bookId = e.target.value; renderHistory(); });
+    historyRange.addEventListener('change', (e)=>{ state.historyFilter.range = e.target.value; syncCustomVisibility(); renderHistory(); });
+    historyFrom.addEventListener('change', (e)=>{ state.historyFilter.from = e.target.value; renderHistory(); });
+    historyTo.addEventListener('change', (e)=>{ state.historyFilter.to = e.target.value; renderHistory(); });
+    historySearch.addEventListener('input', (e)=>{ state.historyFilter.q = e.target.value; renderHistory(); });
+    historyMood.addEventListener('input', (e)=>{ state.historyFilter.mood = e.target.value; renderHistory(); });
+
+    btnHistoryClear.addEventListener('click', ()=>{
+      state.historyFilter.bookId = 'all';
+      state.historyFilter.range = '30';
+      state.historyFilter.from = '';
+      state.historyFilter.to = '';
+      state.historyFilter.q = '';
+      state.historyFilter.mood = '';
+      historyBook.value = 'all';
+      historyRange.value = '30';
+      historyFrom.value = '';
+      historyTo.value = '';
+      historySearch.value = '';
+      historyMood.value = '';
+      syncCustomVisibility();
+      renderHistory();
+    });
+
+    btnHistoryExportCSV.addEventListener('click', ()=>{
+      const list = getHistoryFilteredSessions();
+      const fname = `sloth-reading-nest-sessions-filtered-${todayKey()}.csv`;
+      exportSessionsCSV(list, fname);
     });
   }
 

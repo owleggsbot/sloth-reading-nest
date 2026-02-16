@@ -135,6 +135,36 @@
 
       <div class="stats" id="stats"></div>
       <div class="sessions" id="sessions"></div>
+
+      <details class="details details--history" id="historyPanel">
+        <summary>History</summary>
+        <div class="history">
+          <div class="historyFilters" aria-label="History filters">
+            <select id="historyBook" class="select" aria-label="Filter history by book">
+              <option value="all" selected>All books</option>
+            </select>
+            <select id="historyRange" class="select" aria-label="Filter history by date range">
+              <option value="7">Last 7 days</option>
+              <option value="30" selected>Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="custom">Custom range</option>
+              <option value="all">All time</option>
+            </select>
+            <input id="historyFrom" type="date" aria-label="Custom start date" />
+            <input id="historyTo" type="date" aria-label="Custom end date" />
+            <input id="historySearch" placeholder="Search book title / author" aria-label="Search by book title or author" />
+            <input id="historyMood" placeholder="Mood after (e.g., calm)" aria-label="Filter by mood after" list="historyMoodList" />
+            <datalist id="historyMoodList"></datalist>
+            <button id="btnHistoryClear" class="btn btn--ghost" type="button">Clear</button>
+          </div>
+
+          <div class="historySummary" id="historySummary" aria-live="polite"></div>
+          <div class="row gap" style="margin-top:10px; flex-wrap:wrap;">
+            <button id="btnHistoryExportCSV" class="btn btn--ghost" type="button">Export filtered CSV</button>
+          </div>
+          <div class="sessions" id="historySessions"></div>
+        </div>
+      </details>
     </section>
 
     <section class="card">
