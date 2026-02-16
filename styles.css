@@ -138,6 +138,34 @@ label{display:flex; flex-direction:column; gap:6px; font-size:13px; color: var(-
 .timer__hint{color: var(--muted); font-size:12px; margin-top:4px}
 .timer__actions{flex-wrap:wrap; justify-content:flex-end}
 
+.goals{
+  margin-top:12px;
+  padding:12px;
+  border-radius: 16px;
+  border:1px solid var(--line);
+  background: rgba(255,255,255,.03);
+}
+.goals__head{display:flex; justify-content:space-between; gap:10px; align-items:flex-start}
+.goals__title{font-weight:900; letter-spacing:.2px}
+.goals__meta{margin-top:4px}
+.goals__bar{
+  margin-top:10px;
+  height:12px;
+  border-radius: 999px;
+  border:1px solid rgba(233,242,236,.14);
+  background: rgba(0,0,0,.18);
+  overflow:hidden;
+}
+.goals__fill{
+  height:100%;
+  width:0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(122,224,168,.95), rgba(134,184,255,.75));
+}
+.goals__numbers{margin-top:8px; font-size:13px; color: rgba(233,242,236,.82); font-weight:800}
+.goals__form{margin-top:10px}
+.goals__celebrate{margin-top:10px; padding:10px 12px; border-radius: 14px; border:1px solid rgba(122,224,168,.22); background: rgba(122,224,168,.07); color: #dff7ea; font-weight:800; font-size:13px}
+
 .stats{margin-top:12px; display:grid; grid-template-columns: repeat(3,1fr); gap:10px}
 .stat{padding:10px 12px; border-radius:16px; border:1px solid var(--line); background: rgba(255,255,255,.04)}
 .stat__k{color: var(--muted); font-size:12px}
