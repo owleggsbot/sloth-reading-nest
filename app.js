@@ -237,7 +237,261 @@ function exportSessionsCSV(){
   toast('Sessions CSV exported.');
 }
 
+function parseCSV(text){
+  // Minimal RFC4180-ish parser (commas, quotes, newlines). No deps.
+  const rows = [];
+  let row = [];
+  let field = '';
+  let i = 0;
+  let inQuotes = false;
+  const s = String(text || '');
+
+  while(i < s.length){
+    const c = s[i];
+    if(inQuotes){
+      if(c === '"'){
+        if(s[i+1] === '"'){
+          field += '"';
+          i += 2;
+          continue;
+        }
+        inQuotes = false;
+        i++;
+        continue;
+      }
+      field += c;
+      i++;
+      continue;
+    }
+
+    if(c === '"'){
+      inQuotes = true;
+      i++;
+      continue;
+    }
+    if(c === ','){
+      row.push(field);
+      field = '';
+      i++;
+      continue;
+    }
+    if(c === '\n'){
+      row.push(field);
+      field = '';
+      rows.push(row);
+      row = [];
+      i++;
+      continue;
+    }
+    if(c === '\r'){
+      // ignore (handles CRLF)
+      i++;
+      continue;
+    }
+    field += c;
+    i++;
+  }
+
+  // flush last field/row
+  if(inQuotes){
+    // best effort: treat remaining as field
+    inQuotes = false;
+  }
+  if(field.length || row.length){
+    row.push(field);
+    rows.push(row);
+  }
+
+  // trim trailing empty lines
+  while(rows.length && rows[rows.length-1].every(v => String(v||'').trim() === '')) rows.pop();
+  return rows;
+}
+
+function normKey(s){
+  return String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
+}
+
+function importSessionsCSVFromFile(file){
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const text = String(reader.result || '');
+      const rows = parseCSV(text);
+      if(!rows.length) throw new Error('Empty CSV');
+
+      const header = rows[0].map(h => normKey(h));
+      const idx = {
+        at_iso: header.indexOf('at_iso'),
+        book_id: header.indexOf('book_id'),
+        book_title: header.indexOf('book_title'),
+        book_author: header.indexOf('book_author'),
+        minutes: header.indexOf('minutes'),
+        pages_read: header.indexOf('pages_read'),
+        mood_after: header.indexOf('mood_after'),
+      };
+      if(idx.at_iso < 0 || idx.minutes < 0 || idx.book_title < 0) throw new Error('CSV header missing required columns (need at_iso, minutes, book_title)');
+
+      const byTitleAuthor = new Map(state.books.map(b => [normKey(b.title) + '|' + normKey(b.author), b]));
+      const byId = new Map(state.books.map(b => [b.id, b]));
+
+      // existing session keys for dedupe
+      const existingKeys = new Set();
+      for(const s of state.sessions){
+        const b = byId.get(s.bookId);
+        const title = b?.title || '';
+        existingKeys.add(new Date(s.at).toISOString() + '|' + String(s.minutes) + '|' + normKey(title));
+      }
+
+      let imported = 0;
+      let skipped = 0;
+      let createdBooks = 0;
+      let deduped = 0;
+
+      // iterate data rows
+      for(let r = 1; r < rows.length; r++){
+        const cols = rows[r];
+        const atIso = String(cols[idx.at_iso] || '').trim();
+        const minutesRaw = cols[idx.minutes];
+        const titleRaw = cols[idx.book_title];
+        const authorRaw = idx.book_author >= 0 ? cols[idx.book_author] : '';
+
+        const title = String(titleRaw || '').trim();
+        const author = String(authorRaw || '').trim();
+        if(!atIso || !title){ skipped++; continue; }
+
+        const at = Date.parse(atIso);
+        if(!Number.isFinite(at)) { skipped++; continue; }
+
+        let minutes = safeInt(minutesRaw);
+        if(minutes === null) { skipped++; continue; }
+        minutes = clamp(minutes, 1, 600);
+
+        let pagesRead = idx.pages_read >= 0 ? safeInt(cols[idx.pages_read]) : null;
+        if(pagesRead !== null) pagesRead = clamp(pagesRead, 0, 5000);
+
+        const moodAfter = idx.mood_after >= 0 ? String(cols[idx.mood_after] || '').trim() : '';
+
+        // resolve/create book
+        const bookKey = normKey(title) + '|' + normKey(author);
+        let book = byTitleAuthor.get(bookKey) || null;
+        const idFromCsv = idx.book_id >= 0 ? String(cols[idx.book_id] || '').trim() : '';
+        if(!book && idFromCsv && byId.has(idFromCsv)) book = byId.get(idFromCsv);
+
+        if(!book){
+          book = {
+            id: uid(),
+            title,
+            author: author || '',
+            pages: null,
+            status: 'tbr',
+            notes: 'Imported from sessions CSV',
+            updatedAt: Date.now(),
+          };
+          state.books.unshift(book);
+          byTitleAuthor.set(bookKey, book);
+          byId.set(book.id, book);
+          createdBooks++;
+        }
+
+        const key = new Date(at).toISOString() + '|' + String(minutes) + '|' + normKey(book.title);
+        if(existingKeys.has(key)) { deduped++; continue; }
+        existingKeys.add(key);
+
+        const entry = {
+          id: uid(),
+          at,
+          bookId: book.id,
+          minutes,
+          pagesRead,
+          moodAfter: moodAfter || null,
+        };
+        state.sessions.unshift(entry);
+        imported++;
+      }
+
+      state.sessions.sort((a,b)=>b.at - a.at);
+
+      save();
+      render();
+      toast(`Imported ${imported} session${imported===1?'':'s'}, skipped ${skipped}.`);
+    }catch(e){
+      alert('CSV import failed: ' + e.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
 function importDataFromFile(file){
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const payload = JSON.parse(String(reader.result||''));
+      const d = payload?.data;
+      if(payload?.app !== 'sloth-reading-nest' || !d) throw new Error('Not a Sloth Reading Nest export');
+      state.books = Array.isArray(d.books) ? d.books : [];
+      state.sessions = Array.isArray(d.sessions) ? d.sessions : [];
+      state.nowId = d.nowId || null;
+      state.prompt = d.prompt || null;
+      const m = safeInt(d.timerMinutes);
+      if(m){
+        state.timer.totalSec = clamp(m, 5, 180) * 60;
+        state.timer.leftSec = state.timer.totalSec;
+        $('#sessionMinutes').value = String(clamp(m, 5, 180));
+      }
+      save();
+      render();
+      toast('Imported. Welcome back to the nest.');
+    }catch(e){
+      alert('Import failed: ' + e.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function toast(msg){
+  // minimalist toast
+  let el = $('#_toast');
+  if(!el){
+    el = document.createElement('div');
+    el.id = '_toast';
+    el.style.position = 'fixed';
+    el.style.left = '50%';
+    el.style.bottom = '18px';
+    el.style.transform = 'translateX(-50%)';
+    el.style.padding = '10px 12px';
+    el.style.borderRadius = '14px';
+    el.style.border = '1px solid rgba(233,242,236,.18)';
+    el.style.background = 'rgba(5,10,8,.72)';
+    el.style.backdropFilter = 'blur(10px)';
+    el.style.color = 'white';
+    el.style.fontWeight = '700';
+    el.style.fontSize = '13px';
+    el.style.zIndex = 9999;
+    el.style.maxWidth = 'min(560px, calc(100vw - 24px))';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(el._t);
+  el._t = setTimeout(()=>{ el.style.opacity='0'; }, 2500);
+}
+
+// ---- Timer ----
+function setTimerMinutes(min){
+  const sec = clamp(min, 5, 180) * 60;
+  state.timer.totalSec = sec;
+  state.timer.leftSec = sec;
+  state.timer.running = false;
+  state.timer.startedAt = null;
+  save();
+  renderTimer();
+}
+
+function tick(){
+  if(!state.timer.running) return;
+  const now = performance.now();
+  const elapsed = (now - state.timer.startedAt) / 1000;
+
   const reader = new FileReader();
   reader.onload = () => {
     try{
@@ -910,6 +1164,14 @@ function wire(){
 
   $('#btnExportData').addEventListener('click', exportData);
   $('#btnExportCSV').addEventListener('click', exportSessionsCSV);
+
+  $('#btnImportCSV').addEventListener('click', ()=>$('#importCSVFile').click());
+  $('#importCSVFile').addEventListener('change', (e)=>{
+    const f = e.target.files?.[0];
+    if(f) importSessionsCSVFromFile(f);
+    e.target.value = '';
+  });
+
   $('#btnImportData').addEventListener('click', ()=>$('#importFile').click());
   $('#importFile').addEventListener('change', (e)=>{
     const f = e.target.files?.[0];
