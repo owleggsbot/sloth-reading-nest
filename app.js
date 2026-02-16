@@ -184,6 +184,55 @@ function exportData(){
   setTimeout(()=>URL.revokeObjectURL(url), 500);
 }
 
+function csvEscape(v){
+  if(v === null || v === undefined) return '';
+  const s = String(v);
+  if(/[\",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+function exportSessionsCSV(){
+  // Chronological (oldest first) so it pastes nicely into spreadsheets.
+  const byId = new Map(state.books.map(b => [b.id, b]));
+  const rows = [];
+  rows.push([
+    'at_iso',
+    'at_local',
+    'book_id',
+    'book_title',
+    'book_author',
+    'minutes',
+    'pages_read',
+    'mood_after'
+  ]);
+
+  const list = [...state.sessions].reverse();
+  for(const s of list){
+    const b = byId.get(s.bookId) || {};
+    const at = new Date(s.at);
+    rows.push([
+      at.toISOString(),
+      at.toLocaleString(),
+      s.bookId || '',
+      b.title || '',
+      b.author || '',
+      s.minutes ?? '',
+      s.pagesRead ?? '',
+      s.moodAfter || ''
+    ]);
+  }
+
+  const csv = rows.map(r => r.map(csvEscape).join(',')).join('\n') + '\n';
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sloth-reading-nest-sessions-${todayKey()}.csv`;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 500);
+  toast('Sessions CSV exported.');
+}
+
 function importDataFromFile(file){
   const reader = new FileReader();
   reader.onload = () => {
@@ -813,6 +862,7 @@ function wire(){
   });
 
   $('#btnExportData').addEventListener('click', exportData);
+  $('#btnExportCSV').addEventListener('click', exportSessionsCSV);
   $('#btnImportData').addEventListener('click', ()=>$('#importFile').click());
   $('#importFile').addEventListener('change', (e)=>{
     const f = e.target.files?.[0];
