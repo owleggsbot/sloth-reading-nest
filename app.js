@@ -417,12 +417,33 @@ function makeSnapshot(){
   return snap;
 }
 
-function copyShareLink(){
+async function shareSnapshotLink(){
   const snap = makeSnapshot();
   const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(snap))));
   const url = new URL(location.href);
   url.hash = 'snap=' + encoded;
-  navigator.clipboard.writeText(url.toString()).then(()=>toast('Share link copied.'), ()=>alert('Could not copy.'));
+
+  // Prefer native share sheet on mobile.
+  try{
+    if(navigator.share){
+      await navigator.share({
+        title: 'Sloth Reading Nest',
+        text: 'A tiny, read-only snapshot from my reading nest.',
+        url: url.toString(),
+      });
+      toast('Shared.');
+      return;
+    }
+  }catch(e){
+    // user cancelled / share failed → fall back to clipboard
+  }
+
+  try{
+    await navigator.clipboard.writeText(url.toString());
+    toast('Share link copied.');
+  }catch(e){
+    alert('Could not copy.');
+  }
 }
 
 function tryLoadSnapshotFromHash(){
@@ -639,13 +660,75 @@ function drawChips(ctx, chips, x, y, maxW){
   }
 }
 
-function exportCard(){
+function canvasToBlob(canvas, type='image/png', quality){
+  return new Promise((resolve, reject)=>{
+    try{
+      canvas.toBlob((blob)=>{
+        if(!blob) return reject(new Error('toBlob returned null'));
+        resolve(blob);
+      }, type, quality);
+    }catch(e){
+      reject(e);
+    }
+  });
+}
+
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.download = filename;
+  a.href = url;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+}
+
+async function exportCard(){
   drawCard();
   const canvas = $('#cardCanvas');
-  const a = document.createElement('a');
-  a.download = `sloth-reading-card-${todayKey()}.png`;
-  a.href = canvas.toDataURL('image/png');
-  a.click();
+  const filename = `sloth-reading-card-${todayKey()}.png`;
+  try{
+    const blob = await canvasToBlob(canvas, 'image/png');
+    downloadBlob(blob, filename);
+    toast('Reading card exported.');
+  }catch(e){
+    // Fallback: older browsers
+    const a = document.createElement('a');
+    a.download = filename;
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+  }
+}
+
+async function shareCard(){
+  drawCard();
+  const canvas = $('#cardCanvas');
+  const filename = `sloth-reading-card-${todayKey()}.png`;
+
+  // If the Web Share API can't share files here, just export.
+  if(!navigator.share || !navigator.canShare){
+    await exportCard();
+    return;
+  }
+
+  try{
+    const blob = await canvasToBlob(canvas, 'image/png');
+    const file = new File([blob], filename, { type: 'image/png' });
+    if(!navigator.canShare({ files: [file] })){
+      await exportCard();
+      return;
+    }
+    await navigator.share({
+      title: 'Sloth Reading Nest — reading card',
+      text: 'A cozy little reading card from my nest.',
+      files: [file],
+    });
+    toast('Shared.');
+  }catch(e){
+    // user cancelled / share failed → export instead
+    await exportCard();
+  }
 }
 
 function computeStats(){
@@ -867,10 +950,11 @@ function wire(){
       toast('Snapshot already shared.');
       return;
     }
-    copyShareLink();
+    shareSnapshotLink();
   });
 
   $('#btnExport').addEventListener('click', exportCard);
+  $('#btnShareCard').addEventListener('click', shareCard);
 
   $('#toggleIncludeStats').addEventListener('change', (e)=>{ state.card.includeStats = e.target.checked; drawCard(); });
   $('#toggleIncludePrompt').addEventListener('change', (e)=>{ state.card.includePrompt = e.target.checked; drawCard(); });
