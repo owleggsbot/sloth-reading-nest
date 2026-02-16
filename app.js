@@ -237,6 +237,52 @@ function exportSessionsCSV(){
   toast('Sessions CSV exported.');
 }
 
+function exportShelfCSV(){
+  // A plain shelf export: one row per book.
+  // Sort by title for stable spreadsheet diffs.
+  const rows = [];
+  rows.push([
+    'title',
+    'author',
+    'pages',
+    'status',
+    'notes',
+    'updatedAt'
+  ]);
+
+  const list = [...state.books].sort((a,b)=>{
+    const at = String(a.title||'').toLowerCase();
+    const bt = String(b.title||'').toLowerCase();
+    return at.localeCompare(bt);
+  });
+
+  for(const b of list){
+    rows.push([
+      b.title || '',
+      b.author || '',
+      b.pages ?? '',
+      b.status || '',
+      b.notes || '',
+      b.updatedAt ? new Date(b.updatedAt).toISOString() : ''
+    ]);
+  }
+
+  const csv = rows.map(r => r.map(csvEscape).join(',')).join('\n') + '\n';
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sloth-reading-nest-shelf-${todayKey()}.csv`;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 500);
+  toast('Shelf CSV exported.');
+}
+
+function printShelf(){
+  // Keep it simple: CSS @media print will hide everything except the shelf card.
+  window.print();
+}
+
 function importDataFromFile(file){
   const reader = new FileReader();
   reader.onload = () => {
@@ -994,6 +1040,8 @@ function wire(){
 
   $('#btnExportData').addEventListener('click', exportData);
   $('#btnExportCSV').addEventListener('click', exportSessionsCSV);
+  $('#btnExportShelfCSV').addEventListener('click', exportShelfCSV);
+  $('#btnPrintShelf').addEventListener('click', printShelf);
   $('#btnImportData').addEventListener('click', ()=>$('#importFile').click());
   $('#importFile').addEventListener('change', (e)=>{
     const f = e.target.files?.[0];
