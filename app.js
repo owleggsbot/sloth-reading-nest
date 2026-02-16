@@ -7,6 +7,13 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 const STORAGE_KEY = 'sloth-reading-nest:v1';
 
+// Backup reminder (local-only)
+const BACKUP_FIRST_SEEN_AT_KEY = 'sloth-reading-nest:backup:firstSeenAt';
+const BACKUP_LAST_AT_KEY = 'sloth-reading-nest:backup:lastBackupAt';
+const BACKUP_SNOOZE_UNTIL_KEY = 'sloth-reading-nest:backup:snoozeUntil';
+const BACKUP_DISMISSED_AT_KEY = 'sloth-reading-nest:backup:dismissedAt';
+const DAY_MS = 864e5;
+
 const state = {
   books: [],
   sessions: [],
@@ -49,6 +56,36 @@ function fmtHM(sec){
 function safeInt(v){
   const n = parseInt(String(v||'').trim(), 10);
   return Number.isFinite(n) ? n : null;
+}
+
+function lsGetNum(key){
+  const v = localStorage.getItem(key);
+  if(v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+function lsSetNum(key, n){
+  localStorage.setItem(key, String(Math.round(n)));
+}
+function lsDel(key){
+  localStorage.removeItem(key);
+}
+
+function ensureFirstSeenAt(){
+  // Used to avoid nagging brand-new installs.
+  let t = lsGetNum(BACKUP_FIRST_SEEN_AT_KEY);
+  if(!t){
+    t = Date.now();
+    lsSetNum(BACKUP_FIRST_SEEN_AT_KEY, t);
+  }
+  return t;
+}
+
+function markBackupExported(){
+  const now = Date.now();
+  lsSetNum(BACKUP_LAST_AT_KEY, now);
+  lsDel(BACKUP_SNOOZE_UNTIL_KEY);
+  lsDel(BACKUP_DISMISSED_AT_KEY);
 }
 
 function load(){
@@ -186,6 +223,10 @@ function exportData(){
   a.download = `sloth-reading-nest-export-${todayKey()}.json`;
   a.click();
   setTimeout(()=>URL.revokeObjectURL(url), 500);
+
+  // This is the “backup” export.
+  try{ markBackupExported(); }catch{}
+  try{ renderBackupBanner(); }catch{}
 }
 
 function csvEscape(v){
@@ -876,6 +917,36 @@ function renderPrompt(){
   el.textContent = state.prompt || '';
 }
 
+function shouldShowBackupBanner(){
+  if(state._snapshot) return false;
+
+  const now = Date.now();
+  const snoozeUntil = lsGetNum(BACKUP_SNOOZE_UNTIL_KEY) || 0;
+  if(snoozeUntil && snoozeUntil > now) return false;
+
+  const firstSeenAt = ensureFirstSeenAt();
+  const lastBackupAt = lsGetNum(BACKUP_LAST_AT_KEY) || 0;
+  const dismissedAt = lsGetNum(BACKUP_DISMISSED_AT_KEY) || 0;
+
+  // If user dismissed since the last backup, don't show again until another backup happens.
+  if(dismissedAt && dismissedAt > lastBackupAt) return false;
+
+  const basis = lastBackupAt || firstSeenAt;
+  if(now - basis <= 30 * DAY_MS) return false;
+
+  // Don't prompt on an empty nest.
+  const hasAnyData = (state.books?.length || 0) + (state.sessions?.length || 0) > 0;
+  if(!hasAnyData) return false;
+
+  return true;
+}
+
+function renderBackupBanner(){
+  const wrap = $('#backupBannerWrap');
+  if(!wrap) return;
+  wrap.hidden = !shouldShowBackupBanner();
+}
+
 function escapeHtml(s){
   return String(s||'').replace(/[&<>"']/g, (c)=>({
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
@@ -883,6 +954,7 @@ function escapeHtml(s){
 }
 
 function render(){
+  renderBackupBanner();
   renderNow();
   renderPrompt();
   renderTimer();
@@ -895,6 +967,29 @@ function render(){
 // ---- Events ----
 function wire(){
   tryLoadSnapshotFromHash();
+
+  // backup reminder banner
+  const btnBackupExportNow = $('#btnBackupExportNow');
+  const btnBackupRemindLater = $('#btnBackupRemindLater');
+  const btnBackupDismiss = $('#btnBackupDismiss');
+  if(btnBackupExportNow && btnBackupRemindLater && btnBackupDismiss){
+    btnBackupExportNow.addEventListener('click', ()=>{
+      if(state._snapshot) return;
+      exportData();
+      toast('Backup exported. Tuck it somewhere safe.');
+    });
+    btnBackupRemindLater.addEventListener('click', ()=>{
+      if(state._snapshot) return;
+      lsSetNum(BACKUP_SNOOZE_UNTIL_KEY, Date.now() + 7*DAY_MS);
+      renderBackupBanner();
+      toast('Okay. I’ll remind you later.');
+    });
+    btnBackupDismiss.addEventListener('click', ()=>{
+      if(state._snapshot) return;
+      lsSetNum(BACKUP_DISMISSED_AT_KEY, Date.now());
+      renderBackupBanner();
+    });
+  }
 
   // shelf filters
   const shelfSearch = $('#shelfSearch');

@@ -27,6 +27,20 @@
     </div>
   </header>
 
+  <div id="backupBannerWrap" class="bannerWrap" hidden>
+    <div class="banner" role="status" aria-live="polite">
+      <div class="banner__text">
+        <div class="banner__title">Backup reminder</div>
+        <div class="banner__body">It’s been a while—want to export a backup JSON?</div>
+      </div>
+      <div class="banner__actions">
+        <button id="btnBackupExportNow" class="btn" type="button">Export now</button>
+        <button id="btnBackupRemindLater" class="btn btn--ghost" type="button">Remind me later</button>
+        <button id="btnBackupDismiss" class="btn btn--ghost" type="button">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
   <main class="grid">
     <section class="card">
       <div class="card__head">
