@@ -237,6 +237,259 @@ function exportSessionsCSV(){
   toast('Sessions CSV exported.');
 }
 
+// ---- Sessions CSV import ----
+function parseCSV(text){
+  // Small, dependency-free CSV parser. Handles quoted commas/newlines + escaped quotes.
+  const s = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let inQuotes = false;
+
+  for(let i = 0; i < s.length; i++){
+    const ch = s[i];
+
+    if(inQuotes){
+      if(ch === '"'){
+        const next = s[i+1];
+        if(next === '"'){
+          cell += '"';
+          i++;
+        }else{
+          inQuotes = false;
+        }
+      }else{
+        cell += ch;
+      }
+      continue;
+    }
+
+    if(ch === '"'){
+      inQuotes = true;
+      continue;
+    }
+
+    if(ch === ','){
+      row.push(cell);
+      cell = '';
+      continue;
+    }
+
+    if(ch === '\n'){
+      row.push(cell);
+      cell = '';
+      if(row.some(v => String(v).trim() !== '')) rows.push(row);
+      row = [];
+      continue;
+    }
+
+    cell += ch;
+  }
+
+  row.push(cell);
+  if(row.some(v => String(v).trim() !== '')) rows.push(row);
+  return rows;
+}
+
+function normHeader(h){ return String(h||'').trim().toLowerCase().replace(/\s+/g,'_'); }
+
+function parseAt(v){
+  const raw = String(v ?? '').trim();
+  if(!raw) return null;
+  if(/^\d+$/.test(raw)){
+    const ms = Number(raw);
+    if(Number.isFinite(ms) && ms > 0) return ms;
+  }
+  const d = new Date(raw);
+  const ms = d.getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function ensureBookForImport({bookId, bookTitle, bookAuthor}){
+  const id = (bookId && String(bookId).trim()) ? String(bookId).trim() : null;
+  const title = String(bookTitle || '').trim();
+  const author = String(bookAuthor || '').trim();
+
+  if(id){
+    const existing = getBook(id);
+    if(existing) return existing;
+    const b = {id, title: title || 'Unknown book', author, pages: null, status: 'tbr', notes: '', updatedAt: Date.now()};
+    state.books.unshift(b);
+    return b;
+  }
+
+  if(title){
+    const existing = state.books.find(b => (b.title||'').trim().toLowerCase() === title.toLowerCase());
+    if(existing) return existing;
+    const b = {id: uid(), title, author, pages: null, status: 'tbr', notes: '', updatedAt: Date.now()};
+    state.books.unshift(b);
+    return b;
+  }
+
+  return null;
+}
+
+function buildSessionsImportFromCSV(text){
+  const rows = parseCSV(text);
+  if(rows.length < 2) return {ok:false, error:'CSV is empty (or missing a header row).'};
+
+  const header = rows[0].map(normHeader);
+  const idx = (names) => {
+    for(const n of names){
+      const i = header.indexOf(n);
+      if(i >= 0) return i;
+    }
+    return -1;
+  };
+
+  const iAt = idx(['at','at_iso','at_ms','timestamp']);
+  const iMin = idx(['minutes','mins']);
+  const iBookId = idx(['book_id','bookid']);
+  const iBookTitle = idx(['book_title','booktitle','title']);
+  const iBookAuthor = idx(['book_author','bookauthor','author']);
+  const iPages = idx(['pages_read','pagesread']);
+  const iMood = idx(['mood_after','moodafter']);
+
+  if(iAt < 0 || iMin < 0){
+    return {ok:false, error:'CSV headers must include at (or at_iso) and minutes.'};
+  }
+
+  const preview = [];
+  const sessions = [];
+  let valid = 0;
+  let invalid = 0;
+
+  for(let r = 1; r < rows.length; r++){
+    const row = rows[r];
+    const at = parseAt(row[iAt]);
+    const minutes = safeInt(row[iMin]);
+    const pagesRead = iPages >= 0 ? safeInt(row[iPages]) : null;
+    const moodAfter = iMood >= 0 ? String(row[iMood]||'').trim() : '';
+
+    const bookId = iBookId >= 0 ? row[iBookId] : null;
+    const bookTitle = iBookTitle >= 0 ? row[iBookTitle] : null;
+    const bookAuthor = iBookAuthor >= 0 ? row[iBookAuthor] : null;
+
+    let reason = '';
+    if(!at) reason = 'Bad/missing date';
+    else if(!minutes || minutes <= 0) reason = 'minutes must be > 0';
+
+    let book = null;
+    if(!reason){
+      book = ensureBookForImport({bookId, bookTitle, bookAuthor});
+      if(!book) reason = 'Missing book_id or book_title';
+    }
+
+    if(reason){
+      invalid++;
+      if(preview.length < 10) preview.push({rowNum:r+1, ok:false, reason, raw:row});
+      continue;
+    }
+
+    const entry = {
+      id: uid(),
+      at,
+      bookId: book.id,
+      minutes,
+      pagesRead: pagesRead ?? null,
+      moodAfter: moodAfter || null,
+    };
+    sessions.push(entry);
+    valid++;
+    if(preview.length < 10) preview.push({rowNum:r+1, ok:true, reason:'', raw:row, normalized:entry});
+  }
+
+  sessions.sort((a,b)=>b.at - a.at);
+
+  return {ok:true, sessions, preview, counts:{total: rows.length-1, valid, invalid}, header};
+}
+
+function escapeHTML(s){
+  return String(s ?? '').replace(/[&<>"']/g, (c)=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'
+  }[c]));
+}
+
+function renderCSVPreview(previewObj){
+  const host = $('#csvPreview');
+  if(!host) return;
+
+  if(!previewObj?.ok){
+    host.innerHTML = `<div class="muted" style="padding:10px 12px;">${escapeHTML(previewObj?.error || 'Could not parse CSV.')}</div>`;
+    return;
+  }
+
+  const cols = previewObj.header;
+  const head = ['#','status','reason', ...cols];
+
+  const out = [];
+  out.push('<table><thead><tr>' + head.map(h=>`<th>${escapeHTML(h)}</th>`).join('') + '</tr></thead><tbody>');
+
+  for(const p of previewObj.preview){
+    const status = p.ok ? '<span class="ok">valid</span>' : '<span class="bad">invalid</span>';
+    const reason = p.ok ? '' : escapeHTML(p.reason);
+    const cells = cols.map((_, i)=> escapeHTML(p.raw?.[i] ?? ''));
+    out.push('<tr>' + [`<td>${p.rowNum}</td>`,`<td>${status}</td>`,`<td>${reason}</td>`, ...cells.map(c=>`<td>${c}</td>`)].join('') + '</tr>');
+  }
+
+  out.push('</tbody></table>');
+  host.innerHTML = out.join('');
+}
+
+let _pendingCSVImport = null;
+function importSessionsCSVFromFile(file){
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const text = String(reader.result || '');
+      const result = buildSessionsImportFromCSV(text);
+      _pendingCSVImport = result.ok ? result : null;
+
+      const sum = $('#csvImportSummary');
+      if(result.ok){
+        sum.textContent = `Previewing ${Math.min(10, result.counts.total)} of ${result.counts.total} rows • valid: ${result.counts.valid} • invalid: ${result.counts.invalid}`;
+      }else{
+        sum.textContent = `Could not parse CSV: ${result.error}`;
+      }
+
+      renderCSVPreview(result);
+      const dlg = $('#dlgImportCSV');
+      if(dlg && !dlg.open) dlg.showModal();
+    }catch(e){
+      alert('CSV import failed: ' + e.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function applyPendingCSVImport(){
+  if(!_pendingCSVImport?.ok) return;
+
+  const mode = document.querySelector('input[name="csvMode"]:checked')?.value || 'append';
+  const incoming = _pendingCSVImport.sessions;
+
+  if(mode === 'replace') state.sessions = incoming;
+  else state.sessions = [...incoming, ...state.sessions];
+
+  const seen = new Set();
+  state.sessions = state.sessions.filter(s => {
+    if(seen.has(s.id)) return false;
+    seen.add(s.id);
+    return true;
+  });
+
+  save();
+  render();
+  toast(mode === 'replace' ? 'Sessions replaced from CSV.' : 'Sessions appended from CSV.');
+
+  const dlg = $('#dlgImportCSV');
+  if(dlg?.open) dlg.close();
+
+  _pendingCSVImport = null;
+  if($('#csvImportSummary')) $('#csvImportSummary').textContent = 'Choose a CSV file to preview.';
+  if($('#csvPreview')) $('#csvPreview').innerHTML = '';
+}
+
 function importDataFromFile(file){
   const reader = new FileReader();
   reader.onload = () => {
@@ -994,6 +1247,15 @@ function wire(){
 
   $('#btnExportData').addEventListener('click', exportData);
   $('#btnExportCSV').addEventListener('click', exportSessionsCSV);
+
+  $('#btnImportCSV').addEventListener('click', ()=>$('#importCSVFile').click());
+  $('#importCSVFile').addEventListener('change', (e)=>{
+    const f = e.target.files?.[0];
+    if(f) importSessionsCSVFromFile(f);
+    e.target.value = '';
+  });
+  $('#btnApplyCSVImport').addEventListener('click', applyPendingCSVImport);
+
   $('#btnImportData').addEventListener('click', ()=>$('#importFile').click());
   $('#importFile').addEventListener('change', (e)=>{
     const f = e.target.files?.[0];

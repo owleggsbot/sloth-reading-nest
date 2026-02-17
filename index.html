@@ -146,7 +146,9 @@
             <button id="btnNew" class="btn btn--ghost" type="button">New book</button>
             <button id="btnExportData" class="btn btn--ghost" type="button">Export data (JSON)</button>
             <button id="btnExportCSV" class="btn btn--ghost" type="button">Export sessions (CSV)</button>
-            <button id="btnImportData" class="btn btn--ghost" type="button">Import</button>
+            <button id="btnImportCSV" class="btn btn--ghost" type="button">Import sessions (CSV)</button>
+            <button id="btnImportData" class="btn btn--ghost" type="button">Import data (JSON)</button>
+            <input id="importCSVFile" type="file" accept="text/csv,.csv" hidden />
             <input id="importFile" type="file" accept="application/json" hidden />
           </div>
           <div class="shelfFilters" aria-label="Shelf filters">
@@ -193,6 +195,31 @@
   <footer class="foot">
     <p>Made for slow readers. Built for GitHub Pages.</p>
   </footer>
+
+  <dialog id="dlgImportCSV" class="dlg">
+    <form method="dialog" class="dlg__inner">
+      <div class="dlg__head">
+        <h3>Import sessions (CSV)</h3>
+        <button class="btn btn--ghost" value="cancel" aria-label="Close">Close</button>
+      </div>
+
+      <div class="row gap" style="align-items:flex-start; justify-content:space-between;">
+        <div style="flex: 1; min-width: 220px;">
+          <div class="row gap" style="flex-wrap:wrap;">
+            <label class="row gap muted"><input type="radio" name="csvMode" value="append" checked /> Append</label>
+            <label class="row gap muted"><input type="radio" name="csvMode" value="replace" /> Replace all sessions</label>
+          </div>
+          <p class="muted" id="csvImportSummary">Choose a CSV file to preview.</p>
+        </div>
+        <div class="row gap">
+          <button id="btnApplyCSVImport" class="btn" type="button">Import</button>
+        </div>
+      </div>
+
+      <div class="csvPreview" id="csvPreview"></div>
+      <p class="muted">Tip: we’ll skip invalid rows and tell you why. Your existing data stays on this device.</p>
+    </form>
+  </dialog>
 
   <script src="./app.js"></script>
 </body>
