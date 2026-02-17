@@ -24,6 +24,7 @@
       <button id="btnInstall" class="btn btn--ghost" type="button" hidden>Install</button>
       <button id="btnExport" class="btn" type="button">Export reading card</button>
       <button id="btnShareCard" class="btn btn--ghost" type="button" title="Share the reading card (mobile-friendly)">Share card</button>
+      <button id="btnShortcuts" class="btn btn--ghost" type="button" title="Keyboard shortcuts">Shortcuts</button>
     </div>
   </header>
 
@@ -194,6 +195,29 @@
   <footer class="foot">
     <p>Made for slow readers. Built for GitHub Pages.</p>
   </footer>
+
+  <div id="shortcutsModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle" hidden>
+    <div class="modal__overlay" data-close="1"></div>
+    <div class="modal__panel" role="document">
+      <div class="modal__head">
+        <h2 id="shortcutsTitle">Keyboard shortcuts</h2>
+        <button id="btnCloseShortcuts" class="btn btn--ghost" type="button">Close</button>
+      </div>
+      <div class="modal__body">
+        <p class="muted">Shortcuts work when you’re not typing in a field. (Tip: press <kbd>?</kbd> anytime.)</p>
+        <ul class="kbdList">
+          <li><kbd>Space</kbd> / <kbd>S</kbd> — start / pause</li>
+          <li><kbd>R</kbd> — reset timer</li>
+          <li><kbd>L</kbd> — log completed session</li>
+          <li><kbd>P</kbd> — new cozy prompt</li>
+          <li><kbd>C</kbd> — copy share link</li>
+          <li><kbd>E</kbd> — export reading card</li>
+          <li><kbd>?</kbd> / <kbd>H</kbd> — open this help</li>
+          <li><kbd>Esc</kbd> — close dialogs</li>
+        </ul>
+      </div>
+    </div>
+  </div>
 
   <script src="./app.js"></script>
 </body>

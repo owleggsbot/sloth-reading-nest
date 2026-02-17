@@ -1097,6 +1097,82 @@ function wire(){
   $('#btnExport').addEventListener('click', exportCard);
   $('#btnShareCard').addEventListener('click', shareCard);
 
+  // shortcuts modal + global keyboard shortcuts
+  const modal = $('#shortcutsModal');
+  const btnShortcuts = $('#btnShortcuts');
+  const btnCloseShortcuts = $('#btnCloseShortcuts');
+  let lastFocusEl = null;
+
+  function openShortcuts(){
+    if(!modal) return;
+    lastFocusEl = document.activeElement;
+    modal.hidden = false;
+    // focus close button for keyboard users
+    (btnCloseShortcuts || modal.querySelector('button') || modal).focus?.();
+  }
+
+  function closeShortcuts(){
+    if(!modal) return;
+    modal.hidden = true;
+    // restore focus
+    if(lastFocusEl && lastFocusEl.focus) lastFocusEl.focus();
+    lastFocusEl = null;
+  }
+
+  if(btnShortcuts) btnShortcuts.addEventListener('click', openShortcuts);
+  if(btnCloseShortcuts) btnCloseShortcuts.addEventListener('click', closeShortcuts);
+  if(modal){
+    modal.addEventListener('click', (e)=>{
+      const t = e.target;
+      if(t?.dataset?.close === '1') closeShortcuts();
+    });
+  }
+
+  function isTypingTarget(el){
+    if(!el) return false;
+    const tag = (el.tagName || '').toLowerCase();
+    if(tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+    if(el.isContentEditable) return true;
+    return false;
+  }
+
+  function toggleStartPause(){
+    if(state.timer.running) pauseTimer();
+    else startTimer();
+  }
+
+  window.addEventListener('keydown', (e)=>{
+    // Always allow Esc to close the modal.
+    if(e.key === 'Escape'){
+      if(modal && !modal.hidden){
+        e.preventDefault();
+        closeShortcuts();
+        return;
+      }
+      return;
+    }
+
+    if(e.ctrlKey || e.metaKey || e.altKey) return;
+    if(isTypingTarget(e.target)) return;
+    if(modal && !modal.hidden) return; // don't trigger shortcuts while modal open
+
+    const k = e.key;
+    if(k === ' '){
+      e.preventDefault();
+      toggleStartPause();
+      return;
+    }
+
+    const key = String(k || '').toLowerCase();
+    if(key === 's'){ e.preventDefault(); toggleStartPause(); }
+    if(key === 'r'){ e.preventDefault(); resetTimer(); }
+    if(key === 'l'){ e.preventDefault(); $('#btnLog')?.click(); }
+    if(key === 'p'){ e.preventDefault(); newPrompt(true); render(); }
+    if(key === 'c'){ e.preventDefault(); $('#btnShare')?.click(); }
+    if(key === 'e'){ e.preventDefault(); $('#btnExport')?.click(); }
+    if(key === '?' || key === 'h'){ e.preventDefault(); openShortcuts(); }
+  });
+
   // restore saved card toggles
   if($('#toggleIncludeStats')) $('#toggleIncludeStats').checked = Boolean(state.card.includeStats);
   if($('#toggleIncludePrompt')) $('#toggleIncludePrompt').checked = Boolean(state.card.includePrompt);
