@@ -22,6 +22,15 @@ const state = {
   card: {
     includeStats: true,
     includePrompt: true,
+    includeWeeklyGoal: false,
+  },
+  weeklyGoal: {
+    enabled: false,
+    mode: 'minutes', // 'minutes' | 'sessions'
+    target: 120,
+    includeOnCard: false,
+    resetWeekKey: null,
+    resetAt: null,
   },
   shelfFilter: {
     q: '',
@@ -66,6 +75,23 @@ function load(){
       state.timer.totalSec = sec;
       state.timer.leftSec = sec;
     }
+
+    if(data.weeklyGoal && typeof data.weeklyGoal === 'object'){
+      const g = data.weeklyGoal;
+      state.weeklyGoal.enabled = Boolean(g.enabled);
+      state.weeklyGoal.mode = (g.mode === 'sessions') ? 'sessions' : 'minutes';
+      state.weeklyGoal.target = clamp(safeInt(g.target) ?? state.weeklyGoal.target, 1, 10000);
+      state.weeklyGoal.includeOnCard = Boolean(g.includeOnCard);
+      state.weeklyGoal.resetWeekKey = g.resetWeekKey || null;
+      state.weeklyGoal.resetAt = Number.isFinite(g.resetAt) ? g.resetAt : null;
+    }
+
+    if(data.card && typeof data.card === 'object'){
+      const c = data.card;
+      state.card.includeStats = (c.includeStats !== undefined) ? Boolean(c.includeStats) : state.card.includeStats;
+      state.card.includePrompt = (c.includePrompt !== undefined) ? Boolean(c.includePrompt) : state.card.includePrompt;
+      state.card.includeWeeklyGoal = Boolean(c.includeWeeklyGoal);
+    }
   }catch(e){
     console.warn('load failed', e);
   }
@@ -79,6 +105,8 @@ function save(){
     nowId: state.nowId,
     prompt: state.prompt,
     timerMinutes,
+    weeklyGoal: state.weeklyGoal,
+    card: state.card,
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
@@ -86,6 +114,46 @@ function save(){
 function todayKey(){
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function weekKey(ts=Date.now()){
+  // Local time week starting Monday.
+  const d = new Date(ts);
+  d.setHours(0,0,0,0);
+  const day = (d.getDay() + 6) % 7; // Mon=0 ... Sun=6
+  d.setDate(d.getDate() - day);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function computeWeeklyGoalProgress(){
+  const g = state.weeklyGoal;
+  const key = weekKey(Date.now());
+  let list = state.sessions.filter(s => weekKey(s.at) === key);
+
+  if(g?.resetWeekKey === key && Number.isFinite(g.resetAt)){
+    list = list.filter(s => s.at >= g.resetAt);
+  }
+
+  const minutes = list.reduce((a,s)=>a+(s.minutes||0),0);
+  const sessions = list.length;
+
+  let value = (g?.mode === 'sessions') ? sessions : minutes;
+  let target = safeInt(g?.target);
+  const enabled = Boolean(g?.enabled) && Number.isFinite(target) && target > 0;
+
+  return { enabled, key, minutes, sessions, value, target: enabled ? target : null };
+}
+
+function goalEncouragement(p){
+  if(!p.enabled) return 'Set a tiny goal if you want. Or don’t. Still proud.';
+  const t = p.target || 0;
+  const v = p.value || 0;
+  if(v <= 0) return 'First leaf of the week. You can start whenever.';
+  if(v >= t) return 'Goal met. Soft landing. Extra cozy.';
+  const ratio = t ? (v / t) : 0;
+  if(ratio < 0.34) return 'A gentle start. Keep it small and steady.';
+  if(ratio < 0.75) return 'You’re in the middle of it. Slow progress counts.';
+  return 'Almost there. One more soft push.';
 }
 
 function seededRand(seedStr){
@@ -176,7 +244,9 @@ function exportData(){
       sessions: state.sessions,
       nowId: state.nowId,
       prompt: state.prompt,
-      timerMinutes: Math.round(state.timer.totalSec/60)
+      timerMinutes: Math.round(state.timer.totalSec/60),
+      weeklyGoal: state.weeklyGoal,
+      card: state.card,
     }
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
@@ -254,6 +324,24 @@ function importDataFromFile(file){
         state.timer.leftSec = state.timer.totalSec;
         $('#sessionMinutes').value = String(clamp(m, 5, 180));
       }
+
+      if(d.weeklyGoal && typeof d.weeklyGoal === 'object'){
+        const g = d.weeklyGoal;
+        state.weeklyGoal.enabled = Boolean(g.enabled);
+        state.weeklyGoal.mode = (g.mode === 'sessions') ? 'sessions' : 'minutes';
+        state.weeklyGoal.target = clamp(safeInt(g.target) ?? state.weeklyGoal.target, 1, 10000);
+        state.weeklyGoal.includeOnCard = Boolean(g.includeOnCard);
+        state.weeklyGoal.resetWeekKey = g.resetWeekKey || null;
+        state.weeklyGoal.resetAt = Number.isFinite(g.resetAt) ? g.resetAt : null;
+      }
+
+      if(d.card && typeof d.card === 'object'){
+        const c = d.card;
+        state.card.includeStats = (c.includeStats !== undefined) ? Boolean(c.includeStats) : state.card.includeStats;
+        state.card.includePrompt = (c.includePrompt !== undefined) ? Boolean(c.includePrompt) : state.card.includePrompt;
+        state.card.includeWeeklyGoal = Boolean(c.includeWeeklyGoal);
+      }
+
       save();
       render();
       toast('Imported. Welcome back to the nest.');
@@ -406,6 +494,7 @@ function clearSessions(){
 function makeSnapshot(){
   const b = state.nowId ? getBook(state.nowId) : null;
   const totalMin7 = state.sessions.filter(s => (Date.now() - s.at) < 7*864e5).reduce((a,s)=>a+s.minutes,0);
+  const prog = computeWeeklyGoalProgress();
   const snap = {
     t: b?.title || null,
     a: b?.author || null,
@@ -413,6 +502,9 @@ function makeSnapshot(){
     p: b?.pages || null,
     m7: totalMin7,
     pr: state.prompt,
+    wk: prog.key,
+    wg: prog.enabled ? { mode: state.weeklyGoal.mode, target: prog.target } : null,
+    wp: prog.enabled ? { minutes: prog.minutes, sessions: prog.sessions, value: prog.value } : null,
   };
   return snap;
 }
@@ -577,6 +669,23 @@ function drawCard(){
     chips.push(`today: ${stats.minToday} min`);
     chips.push(`sessions: ${stats.sessionCount}`);
   }
+
+  if(state.card.includeWeeklyGoal){
+    const g = snap.wg;
+    const wp = snap.wp;
+    if(g && wp){
+      const unit = g.mode === 'sessions' ? 'sessions' : 'min';
+      const v = g.mode === 'sessions' ? wp.sessions : wp.minutes;
+      chips.push(`week: ${v}/${g.target} ${unit}`);
+    }else{
+      const p = computeWeeklyGoalProgress();
+      if(p.enabled){
+        const unit = state.weeklyGoal.mode === 'sessions' ? 'sessions' : 'min';
+        chips.push(`week: ${p.value}/${p.target} ${unit}`);
+      }
+    }
+  }
+
   if(snap.s){
     chips.push(`status: ${snap.s}`);
   }
@@ -751,6 +860,11 @@ function renderNow(){
         <span class="chip"><strong>read-only</strong> snapshot link</span>
         ${snap.s ? `<span class="chip">status: <strong>${escapeHtml(snap.s)}</strong></span>` : ''}
         ${Number.isFinite(snap.m7) ? `<span class="chip">7d minutes: <strong>${snap.m7}</strong></span>` : ''}
+        ${snap.wg && snap.wp ? (()=>{
+          const unit = snap.wg.mode === 'sessions' ? 'sessions' : 'min';
+          const v = (snap.wg.mode === 'sessions') ? snap.wp.sessions : snap.wp.minutes;
+          return `<span class="chip">week: <strong>${escapeHtml(String(v))}/${escapeHtml(String(snap.wg.target))} ${unit}</strong></span>`;
+        })() : ''}
       </div>
     `;
     return;
@@ -859,10 +973,37 @@ function renderStats(){
     return;
   }
   const st = computeStats();
+  const p = computeWeeklyGoalProgress();
+  const g = state.weeklyGoal;
+
+  const unit = (g.mode === 'sessions') ? 'sessions' : 'min';
+  const goalLine = p.enabled
+    ? `${p.value}/${p.target} ${unit} this week`
+    : 'No weekly goal set';
+
   el.innerHTML = `
     <div class="stat"><div class="stat__k">minutes today</div><div class="stat__v">${st.minToday}</div></div>
     <div class="stat"><div class="stat__k">minutes (last 7 days)</div><div class="stat__v">${st.min7}</div></div>
     <div class="stat"><div class="stat__k">sessions logged</div><div class="stat__v">${st.sessionCount}</div></div>
+
+    <div class="goal">
+      <div class="goal__head">
+        <div>
+          <div class="goal__k">weekly goal</div>
+          <div class="goal__v">${escapeHtml(goalLine)}</div>
+          <div class="goal__hint muted">${escapeHtml(goalEncouragement(p))}</div>
+        </div>
+        <button id="btnResetGoal" class="btn btn--ghost" type="button" ${p.enabled ? '' : 'disabled'} title="Reset progress for this week without deleting sessions">Reset</button>
+      </div>
+      <div class="goal__controls">
+        <label class="row gap muted"><input id="weeklyGoalEnabled" type="checkbox" ${g.enabled ? 'checked' : ''} /> enable</label>
+        <select id="weeklyGoalMode" class="select" aria-label="Weekly goal mode">
+          <option value="minutes" ${g.mode==='minutes'?'selected':''}>minutes/week</option>
+          <option value="sessions" ${g.mode==='sessions'?'selected':''}>sessions/week</option>
+        </select>
+        <input id="weeklyGoalTarget" inputmode="numeric" pattern="[0-9]*" class="input" style="max-width:140px" value="${escapeHtml(String(g.target||''))}" aria-label="Weekly goal target" />
+      </div>
+    </div>
   `;
 }
 
@@ -956,8 +1097,54 @@ function wire(){
   $('#btnExport').addEventListener('click', exportCard);
   $('#btnShareCard').addEventListener('click', shareCard);
 
-  $('#toggleIncludeStats').addEventListener('change', (e)=>{ state.card.includeStats = e.target.checked; drawCard(); });
-  $('#toggleIncludePrompt').addEventListener('change', (e)=>{ state.card.includePrompt = e.target.checked; drawCard(); });
+  // restore saved card toggles
+  if($('#toggleIncludeStats')) $('#toggleIncludeStats').checked = Boolean(state.card.includeStats);
+  if($('#toggleIncludePrompt')) $('#toggleIncludePrompt').checked = Boolean(state.card.includePrompt);
+  if($('#toggleIncludeWeeklyGoal')) $('#toggleIncludeWeeklyGoal').checked = Boolean(state.card.includeWeeklyGoal);
+
+  $('#toggleIncludeStats').addEventListener('change', (e)=>{ state.card.includeStats = e.target.checked; save(); drawCard(); });
+  $('#toggleIncludePrompt').addEventListener('change', (e)=>{ state.card.includePrompt = e.target.checked; save(); drawCard(); });
+  $('#toggleIncludeWeeklyGoal').addEventListener('change', (e)=>{ state.card.includeWeeklyGoal = e.target.checked; state.weeklyGoal.includeOnCard = e.target.checked; save(); drawCard(); });
+
+  // weekly goal controls live inside #stats and get re-rendered often → delegate.
+  $('#stats').addEventListener('change', (e)=>{
+    if(state._snapshot) return;
+    const t = e.target;
+    if(t?.id === 'weeklyGoalEnabled'){
+      state.weeklyGoal.enabled = Boolean(t.checked);
+      save();
+      renderStats();
+      drawCard();
+    }
+    if(t?.id === 'weeklyGoalMode'){
+      state.weeklyGoal.mode = (t.value === 'sessions') ? 'sessions' : 'minutes';
+      save();
+      renderStats();
+      drawCard();
+    }
+    if(t?.id === 'weeklyGoalTarget'){
+      const n = safeInt(t.value);
+      if(n) state.weeklyGoal.target = clamp(n, 1, 10000);
+      save();
+      renderStats();
+      drawCard();
+    }
+  });
+
+  $('#stats').addEventListener('click', (e)=>{
+    if(state._snapshot) return;
+    const btn = e.target.closest('button');
+    if(!btn) return;
+    if(btn.id === 'btnResetGoal'){
+      const key = weekKey(Date.now());
+      state.weeklyGoal.resetWeekKey = key;
+      state.weeklyGoal.resetAt = Date.now();
+      save();
+      renderStats();
+      drawCard();
+      toast('Weekly progress reset (sessions kept).');
+    }
+  });
 
   $('#btnNew').addEventListener('click', ()=>openBookForm());
 
