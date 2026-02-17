@@ -182,3 +182,32 @@ canvas{
   .form__row{flex-direction:column}
   .stats{grid-template-columns:1fr}
 }
+
+/* ---- Dialogs (CSV import preview) ---- */
+.dlg{
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 0;
+  background: rgba(13,22,19,.95);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  width: min(860px, calc(100vw - 22px));
+}
+.dlg::backdrop{ background: rgba(0,0,0,.55); backdrop-filter: blur(6px); }
+.dlg__inner{ padding: 14px 14px 16px; }
+.dlg__head{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom: 10px; }
+.dlg__head h3{ margin:0; font-size:16px; letter-spacing:.2px; }
+
+.csvPreview{
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255,255,255,.03);
+  overflow: auto;
+  max-height: 52vh;
+}
+.csvPreview table{ width: 100%; border-collapse: collapse; font-size: 13px; }
+.csvPreview th, .csvPreview td{ padding: 8px 10px; border-bottom: 1px solid rgba(233,242,236,.08); vertical-align: top; }
+.csvPreview th{ position: sticky; top: 0; background: rgba(10,18,15,.96); text-align: left; }
+.csvPreview .bad{ color: #ffb1b1; }
+.csvPreview .ok{ color: #bff3d4; }
