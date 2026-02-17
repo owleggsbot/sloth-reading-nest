@@ -170,6 +170,16 @@
         <h2>Privacy</h2>
       </div>
       <p class="muted">No accounts. No analytics. No servers. Everything stays in your browser unless you export it.</p>
+
+      <div class="restoreBox" aria-label="Restore points">
+        <h3 class="h3">Restore points</h3>
+        <p class="muted">Sloth keeps a few automatic snapshots of your data when you save changes. Use these to roll back if you fat-finger a delete.</p>
+        <div id="restorePoints"></div>
+        <div class="row gap">
+          <button id="btnClearRestorePoints" class="btn btn--ghost" type="button">Clear restore points</button>
+        </div>
+      </div>
+
       <div class="row gap">
         <button id="btnNuke" class="btn btn--danger" type="button">Delete all local data</button>
       </div>
