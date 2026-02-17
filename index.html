@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
+  <a class="skip" href="#main">Skip to main content</a>
   <header class="top">
     <div class="brand">
       <img class="brand__icon" src="./icon.svg" alt="" />
@@ -24,11 +25,12 @@
       <button id="btnInstall" class="btn btn--ghost" type="button" hidden>Install</button>
       <button id="btnExport" class="btn" type="button">Export reading card</button>
       <button id="btnShareCard" class="btn btn--ghost" type="button" title="Share the reading card (mobile-friendly)">Share card</button>
+      <button id="btnContrast" class="btn btn--ghost" type="button" aria-pressed="false" title="Toggle high contrast">High contrast</button>
       <button id="btnShortcuts" class="btn btn--ghost" type="button" title="Keyboard shortcuts">Shortcuts</button>
     </div>
   </header>
 
-  <main class="grid">
+  <main id="main" class="grid" tabindex="-1">
     <section class="card">
       <div class="card__head">
         <h2>Now reading</h2>

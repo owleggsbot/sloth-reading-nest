@@ -8,6 +8,7 @@ Offline-first cozy reading tracker + gentle session timer.
 - Optional **weekly goal** (minutes/week or sessions/week, local-only)
 - Export a **shareable PNG reading card**
 - Optional **snapshot share link** (read-only state in URL hash)
+- Optional **High Contrast** mode toggle (persists locally)
 
 ## Local dev
 

@@ -24,6 +24,76 @@ body{
   color:var(--text);
 }
 a{color:var(--accent2)}
+
+/* Skip link (keyboard users) */
+.skip{
+  position:absolute;
+  left: 14px;
+  top: 14px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(0,0,0,.75);
+  border: 2px solid rgba(134,184,255,.65);
+  color: var(--text);
+  text-decoration:none;
+  transform: translateY(-180%);
+  transition: transform .16s ease;
+  z-index: 100;
+}
+.skip:focus{ transform: translateY(0); }
+
+/* Focus styles */
+:focus-visible{
+  outline: 3px solid rgba(134,184,255,.95);
+  outline-offset: 3px;
+}
+.btn:focus-visible, .select:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible, a:focus-visible{
+  outline: 3px solid rgba(134,184,255,.95);
+  outline-offset: 3px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Optional High Contrast mode (toggle) */
+html[data-contrast="high"]{
+  --bg:#000;
+  --panel:#000;
+  --panel2:#000;
+  --text:#fff;
+  --muted:#f0f0f0;
+  --line: rgba(255,255,255,.55);
+  --shadow: none;
+}
+html[data-contrast="high"] body{ background: var(--bg); }
+html[data-contrast="high"] .card,
+html[data-contrast="high"] .btn--ghost,
+html[data-contrast="high"] .btn--danger,
+html[data-contrast="high"] .select,
+html[data-contrast="high"] select,
+html[data-contrast="high"] input,
+html[data-contrast="high"] textarea,
+html[data-contrast="high"] .now,
+html[data-contrast="high"] .timer,
+html[data-contrast="high"] .stat,
+html[data-contrast="high"] .session,
+html[data-contrast="high"] .book,
+html[data-contrast="high"] canvas,
+html[data-contrast="high"] .modal__panel,
+html[data-contrast="high"] .chip,
+html[data-contrast="high"] .kbdList kbd{
+  border-width: 2px;
+}
+html[data-contrast="high"] .btn{ box-shadow:none; }
+html[data-contrast="high"] .prompt{ border-color: rgba(255,255,255,.55); background: rgba(255,255,255,.08); color: var(--text); }
+
 .top{
   display:flex; gap:16px; justify-content:space-between; align-items:flex-start;
   padding:22px 22px 10px;
