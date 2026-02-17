@@ -32,6 +32,9 @@ const state = {
     resetWeekKey: null,
     resetAt: null,
   },
+  streak: {
+    enabled: false,
+  },
   shelfFilter: {
     q: '',
     status: 'all'
@@ -84,9 +87,23 @@ function load(){
       state.weeklyGoal.includeOnCard = Boolean(g.includeOnCard);
       state.weeklyGoal.resetWeekKey = g.resetWeekKey || null;
       state.weeklyGoal.resetAt = Number.isFinite(g.resetAt) ? g.resetAt : null;
+    }else if(data.goalMinutesWeekly !== undefined){
+      // Back-compat / alternate schema: minutes-only weekly goal.
+      const t = safeInt(data.goalMinutesWeekly);
+      if(Number.isFinite(t) && t > 0){
+        state.weeklyGoal.enabled = true;
+        state.weeklyGoal.mode = 'minutes';
+        state.weeklyGoal.target = clamp(t, 1, 10000);
+      }
     }
 
-    if(data.card && typeof data.card === 'object'){
+    if(data.streakEnabled !== undefined){
+      state.streak.enabled = Boolean(data.streakEnabled);
+    }else if(data.streak && typeof data.streak === 'object'){
+      state.streak.enabled = Boolean(data.streak.enabled);
+    }
+
+    if(data.card && typeof data.card === 'object'){ 
       const c = data.card;
       state.card.includeStats = (c.includeStats !== undefined) ? Boolean(c.includeStats) : state.card.includeStats;
       state.card.includePrompt = (c.includePrompt !== undefined) ? Boolean(c.includePrompt) : state.card.includePrompt;
@@ -105,7 +122,11 @@ function save(){
     nowId: state.nowId,
     prompt: state.prompt,
     timerMinutes,
+    // Preferred schema
     weeklyGoal: state.weeklyGoal,
+    streakEnabled: Boolean(state.streak?.enabled),
+    // Simple/alternate schema fields (kept for compatibility with older specs)
+    goalMinutesWeekly: (state.weeklyGoal?.mode === 'minutes') ? (state.weeklyGoal.target || null) : null,
     card: state.card,
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -113,6 +134,11 @@ function save(){
 
 function todayKey(){
   const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function dayKey(ts=Date.now()){
+  const d = new Date(ts);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
@@ -142,6 +168,36 @@ function computeWeeklyGoalProgress(){
   const enabled = Boolean(g?.enabled) && Number.isFinite(target) && target > 0;
 
   return { enabled, key, minutes, sessions, value, target: enabled ? target : null };
+}
+
+function computeStreak(){
+  // Consecutive days ending today where total minutes logged that day > 0.
+  // Uses local time day boundaries.
+  if(!state.streak?.enabled) return { enabled: false, days: 0, todayHasAny: false };
+
+  const byDay = new Map();
+  for(const s of state.sessions){
+    const k = dayKey(s.at);
+    const m = Number(s.minutes||0) || 0;
+    byDay.set(k, (byDay.get(k) || 0) + m);
+  }
+
+  let days = 0;
+  let cursor = new Date();
+  cursor.setHours(0,0,0,0);
+
+  const todayK = dayKey(cursor.getTime());
+  const todayHasAny = (byDay.get(todayK) || 0) > 0;
+  if(!todayHasAny) return { enabled: true, days: 0, todayHasAny: false };
+
+  while(true){
+    const k = dayKey(cursor.getTime());
+    if((byDay.get(k) || 0) <= 0) break;
+    days += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  return { enabled: true, days, todayHasAny: true };
 }
 
 function goalEncouragement(p){
@@ -246,6 +302,8 @@ function exportData(){
       prompt: state.prompt,
       timerMinutes: Math.round(state.timer.totalSec/60),
       weeklyGoal: state.weeklyGoal,
+      goalMinutesWeekly: (state.weeklyGoal?.mode === 'minutes') ? (state.weeklyGoal.target || null) : null,
+      streakEnabled: Boolean(state.streak?.enabled),
       card: state.card,
     }
   };
@@ -333,6 +391,19 @@ function importDataFromFile(file){
         state.weeklyGoal.includeOnCard = Boolean(g.includeOnCard);
         state.weeklyGoal.resetWeekKey = g.resetWeekKey || null;
         state.weeklyGoal.resetAt = Number.isFinite(g.resetAt) ? g.resetAt : null;
+      }else if(d.goalMinutesWeekly !== undefined){
+        const t = safeInt(d.goalMinutesWeekly);
+        if(Number.isFinite(t) && t > 0){
+          state.weeklyGoal.enabled = true;
+          state.weeklyGoal.mode = 'minutes';
+          state.weeklyGoal.target = clamp(t, 1, 10000);
+        }
+      }
+
+      if(d.streakEnabled !== undefined){
+        state.streak.enabled = Boolean(d.streakEnabled);
+      }else if(d.streak && typeof d.streak === 'object'){
+        state.streak.enabled = Boolean(d.streak.enabled);
       }
 
       if(d.card && typeof d.card === 'object'){
@@ -980,6 +1051,20 @@ function renderStats(){
   const goalLine = p.enabled
     ? `${p.value}/${p.target} ${unit} this week`
     : 'No weekly goal set';
+  const remaining = p.enabled
+    ? Math.max(0, (p.target || 0) - (p.value || 0))
+    : null;
+  const remainingLine = p.enabled
+    ? (remaining === 0 ? 'Nothing left to do. Rest is allowed.' : `${remaining} ${unit} remaining`)
+    : 'Optional. You can leave it blank.';
+  const pct = p.enabled
+    ? clamp(((p.value || 0) / (p.target || 1)) * 100, 0, 100)
+    : 0;
+
+  const streak = computeStreak();
+  const streakLine = !streak.enabled
+    ? 'Streak is off (and that’s perfectly fine).'
+    : (streak.days <= 0 ? 'No streak right now. Today can be day one.' : `${streak.days} day${streak.days===1?'':'s'} in a row. Soft and steady.`);
 
   el.innerHTML = `
     <div class="stat"><div class="stat__k">minutes today</div><div class="stat__v">${st.minToday}</div></div>
@@ -990,10 +1075,14 @@ function renderStats(){
       <div class="goal__head">
         <div>
           <div class="goal__k">weekly goal</div>
-          <div class="goal__v">${escapeHtml(goalLine)}</div>
+          <div class="goal__v" aria-live="polite">${escapeHtml(goalLine)}</div>
+          <div class="goal__hint muted">${escapeHtml(remainingLine)}</div>
           <div class="goal__hint muted">${escapeHtml(goalEncouragement(p))}</div>
         </div>
         <button id="btnResetGoal" class="btn btn--ghost" type="button" ${p.enabled ? '' : 'disabled'} title="Reset progress for this week without deleting sessions">Reset</button>
+      </div>
+      <div class="goal__bar" role="progressbar" aria-label="Weekly goal progress" aria-valuemin="0" aria-valuemax="${escapeHtml(String(p.target || 0))}" aria-valuenow="${escapeHtml(String(p.enabled ? (p.value||0) : 0))}">
+        <div class="goal__barFill" style="width:${pct}%"></div>
       </div>
       <div class="goal__controls">
         <label class="row gap muted"><input id="weeklyGoalEnabled" type="checkbox" ${g.enabled ? 'checked' : ''} /> enable</label>
@@ -1002,6 +1091,19 @@ function renderStats(){
           <option value="sessions" ${g.mode==='sessions'?'selected':''}>sessions/week</option>
         </select>
         <input id="weeklyGoalTarget" inputmode="numeric" pattern="[0-9]*" class="input" style="max-width:140px" value="${escapeHtml(String(g.target||''))}" aria-label="Weekly goal target" />
+      </div>
+    </div>
+
+    <div class="goal">
+      <div class="goal__head">
+        <div>
+          <div class="goal__k">gentle streak</div>
+          <div class="goal__v" aria-live="polite">${escapeHtml(streakLine)}</div>
+          <div class="goal__hint muted">Counts days with at least one logged session. No guilt, ever.</div>
+        </div>
+      </div>
+      <div class="goal__controls">
+        <label class="row gap muted"><input id="streakEnabled" type="checkbox" ${state.streak.enabled ? 'checked' : ''} /> enable</label>
       </div>
     </div>
   `;
@@ -1201,6 +1303,12 @@ function wire(){
     if(t?.id === 'weeklyGoalTarget'){
       const n = safeInt(t.value);
       if(n) state.weeklyGoal.target = clamp(n, 1, 10000);
+      save();
+      renderStats();
+      drawCard();
+    }
+    if(t?.id === 'streakEnabled'){
+      state.streak.enabled = Boolean(t.checked);
       save();
       renderStats();
       drawCard();

@@ -159,6 +159,20 @@ label{display:flex; flex-direction:column; gap:6px; font-size:13px; color: var(-
 .goal__controls select{min-width: 170px}
 .goal__controls input{max-width: 140px}
 
+.goal__bar{
+  margin-top: 10px;
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(233,242,236,.18);
+  background: rgba(0,0,0,.18);
+  overflow: hidden;
+}
+.goal__barFill{
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(122,224,168,.85), rgba(122,224,168,.35));
+}
+
 .sessions{margin-top:12px; display:flex; flex-direction:column; gap:8px}
 .session{
   display:flex; justify-content:space-between; align-items:flex-start; gap:10px;
