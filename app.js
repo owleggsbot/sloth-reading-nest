@@ -35,6 +35,9 @@ const state = {
   shelfFilter: {
     q: '',
     status: 'all'
+  },
+  a11y: {
+    highContrast: false,
   }
 };
 
@@ -92,6 +95,11 @@ function load(){
       state.card.includePrompt = (c.includePrompt !== undefined) ? Boolean(c.includePrompt) : state.card.includePrompt;
       state.card.includeWeeklyGoal = Boolean(c.includeWeeklyGoal);
     }
+
+    if(data.a11y && typeof data.a11y === 'object'){
+      const a = data.a11y;
+      state.a11y.highContrast = Boolean(a.highContrast);
+    }
   }catch(e){
     console.warn('load failed', e);
   }
@@ -107,6 +115,7 @@ function save(){
     timerMinutes,
     weeklyGoal: state.weeklyGoal,
     card: state.card,
+    a11y: state.a11y,
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
@@ -1037,6 +1046,30 @@ function render(){
 function wire(){
   tryLoadSnapshotFromHash();
 
+  // a11y: high contrast toggle
+  function applyHighContrast(){
+    const on = Boolean(state.a11y?.highContrast);
+    if(on) document.documentElement.dataset.contrast = 'high';
+    else delete document.documentElement.dataset.contrast;
+
+    const btn = $('#btnContrast');
+    if(btn){
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.title = on ? 'High contrast is on (click to turn off)' : 'Toggle high contrast';
+    }
+  }
+  applyHighContrast();
+
+  const btnContrast = $('#btnContrast');
+  if(btnContrast){
+    btnContrast.addEventListener('click', ()=>{
+      if(state._snapshot) return;
+      state.a11y.highContrast = !state.a11y.highContrast;
+      save();
+      applyHighContrast();
+    });
+  }
+
   // shelf filters
   const shelfSearch = $('#shelfSearch');
   const shelfStatus = $('#shelfStatus');
@@ -1103,12 +1136,20 @@ function wire(){
   const btnCloseShortcuts = $('#btnCloseShortcuts');
   let lastFocusEl = null;
 
+  function modalFocusables(){
+    if(!modal) return [];
+    const list = Array.from(modal.querySelectorAll('a, button, input, select, textarea, [tabindex]:not([tabindex="-1"])'));
+    return list.filter(el => !el.hasAttribute('disabled') && !el.getAttribute('aria-hidden') && el.offsetParent !== null);
+  }
+
   function openShortcuts(){
     if(!modal) return;
     lastFocusEl = document.activeElement;
     modal.hidden = false;
+
     // focus close button for keyboard users
-    (btnCloseShortcuts || modal.querySelector('button') || modal).focus?.();
+    const first = btnCloseShortcuts || modalFocusables()[0] || modal;
+    first.focus?.();
   }
 
   function closeShortcuts(){
@@ -1125,6 +1166,27 @@ function wire(){
     modal.addEventListener('click', (e)=>{
       const t = e.target;
       if(t?.dataset?.close === '1') closeShortcuts();
+    });
+
+    // light focus trap (optional but helps)
+    modal.addEventListener('keydown', (e)=>{
+      if(e.key !== 'Tab') return;
+      if(modal.hidden) return;
+      const f = modalFocusables();
+      if(!f.length) return;
+      const first = f[0];
+      const last = f[f.length - 1];
+      if(e.shiftKey){
+        if(document.activeElement === first || document.activeElement === modal){
+          e.preventDefault();
+          last.focus();
+        }
+      }else{
+        if(document.activeElement === last){
+          e.preventDefault();
+          first.focus();
+        }
+      }
     });
   }
 
