@@ -191,6 +191,51 @@ canvas{
 
 .foot{max-width:1200px; margin:0 auto; padding:0 22px 30px; color: var(--muted); font-size:12px}
 
+.srOnly{
+  position:absolute !important;
+  width:1px; height:1px;
+  padding:0; margin:-1px;
+  overflow:hidden;
+  clip:rect(0,0,0,0);
+  white-space:nowrap;
+  border:0;
+}
+
+/* ---- Focus Mode ---- */
+body.focusMode .top,
+body.focusMode .foot{display:none}
+
+body.focusMode #cardShelf,
+body.focusMode #cardPrivacy,
+body.focusMode #cardPreview{display:none}
+
+body.focusMode #logForm,
+body.focusMode #stats,
+body.focusMode #sessions{display:none}
+
+body.focusMode .grid{
+  grid-template-columns: 1fr;
+  max-width: 920px;
+}
+
+body.focusMode .card{grid-column: 1 / -1;}
+
+body.focusMode .timer{
+  flex-direction:column;
+  text-align:center;
+  justify-content:center;
+}
+body.focusMode .timer__face{min-width: auto}
+body.focusMode .timer__time{
+  font-size: clamp(64px, 12vw, 120px);
+  letter-spacing: 1px;
+}
+body.focusMode .timer__actions{justify-content:center}
+
+@media (prefers-reduced-motion: reduce){
+  .btn:active{transform:none}
+}
+
 /* ---- Modal (shortcuts) ---- */
 .modal[hidden]{display:none}
 .modal{position:fixed; inset:0; z-index:50}

@@ -1141,12 +1141,134 @@ function wire(){
     else startTimer();
   }
 
+  // ---- Focus Mode + Wake Lock ----
+  const FOCUS_KEY = 'sloth-reading-nest:focusMode:v1';
+  const WAKELOCK_KEY = 'sloth-reading-nest:wakeLock:v1';
+  let wakeLockSentinel = null;
+
+  function getBoolPref(key, fallback=false){
+    try{
+      const raw = localStorage.getItem(key);
+      if(raw === null) return fallback;
+      return raw === '1' || raw === 'true';
+    }catch{ return fallback; }
+  }
+
+  function setBoolPref(key, v){
+    try{ localStorage.setItem(key, v ? '1' : '0'); }catch{}
+  }
+
+  const btnFocusMode = $('#btnFocusMode');
+  const live = $('#focusLive');
+  const toggleWakeLock = $('#toggleWakeLock');
+  const wakeLockStatus = $('#wakeLockStatus');
+
+  let focusMode = getBoolPref(FOCUS_KEY, false);
+  let wakeLockWanted = getBoolPref(WAKELOCK_KEY, false);
+
+  async function releaseWakeLock(){
+    try{ await wakeLockSentinel?.release?.(); }catch{}
+    wakeLockSentinel = null;
+  }
+
+  async function requestWakeLock(){
+    if(!wakeLockWanted) return;
+    if(!focusMode) return;
+
+    if(!('wakeLock' in navigator)){
+      if(wakeLockStatus){
+        wakeLockStatus.hidden = false;
+        wakeLockStatus.textContent = 'Wake lock is not supported in this browser.';
+      }
+      return;
+    }
+
+    try{
+      wakeLockSentinel = await navigator.wakeLock.request('screen');
+      if(wakeLockStatus){
+        wakeLockStatus.hidden = false;
+        wakeLockStatus.textContent = 'Wake lock active (screen will stay awake).';
+      }
+      wakeLockSentinel.addEventListener?.('release', ()=>{
+        if(wakeLockWanted && focusMode && document.visibilityState === 'visible'){
+          setTimeout(()=>requestWakeLock(), 0);
+        }
+      });
+    }catch(err){
+      if(wakeLockStatus){
+        wakeLockStatus.hidden = false;
+        wakeLockStatus.textContent = `Wake lock unavailable: ${err?.name || 'request failed'}.`;
+      }
+    }
+  }
+
+  async function applyFocusMode(announce=true){
+    document.body.classList.toggle('focusMode', focusMode);
+
+    if(btnFocusMode){
+      btnFocusMode.setAttribute('aria-pressed', focusMode ? 'true' : 'false');
+      btnFocusMode.textContent = focusMode ? 'Exit focus' : 'Focus mode';
+    }
+
+    if(live && announce){
+      live.textContent = focusMode ? 'Focus mode enabled.' : 'Focus mode disabled.';
+    }
+
+    if(!focusMode){
+      await releaseWakeLock();
+      if(wakeLockStatus) wakeLockStatus.hidden = true;
+      return;
+    }
+
+    if(wakeLockWanted) await requestWakeLock();
+    else{
+      await releaseWakeLock();
+      if(wakeLockStatus) wakeLockStatus.hidden = true;
+    }
+  }
+
+  if(btnFocusMode){
+    btnFocusMode.addEventListener('click', ()=>{
+      focusMode = !focusMode;
+      setBoolPref(FOCUS_KEY, focusMode);
+      applyFocusMode(true);
+    });
+  }
+
+  if(toggleWakeLock){
+    toggleWakeLock.checked = wakeLockWanted;
+    toggleWakeLock.addEventListener('change', async (e)=>{
+      wakeLockWanted = Boolean(e.target.checked);
+      setBoolPref(WAKELOCK_KEY, wakeLockWanted);
+      if(!wakeLockWanted){
+        await releaseWakeLock();
+        if(wakeLockStatus) wakeLockStatus.hidden = true;
+        return;
+      }
+      await requestWakeLock();
+    });
+  }
+
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState === 'visible') requestWakeLock();
+  });
+
+  applyFocusMode(false);
+
   window.addEventListener('keydown', (e)=>{
     // Always allow Esc to close the modal.
     if(e.key === 'Escape'){
       if(modal && !modal.hidden){
         e.preventDefault();
         closeShortcuts();
+        return;
+      }
+      // Escape exits focus mode (as long as no dialog is open).
+      if(focusMode){
+        e.preventDefault();
+        focusMode = false;
+        setBoolPref(FOCUS_KEY, focusMode);
+        applyFocusMode(true);
         return;
       }
       return;
@@ -1170,6 +1292,12 @@ function wire(){
     if(key === 'p'){ e.preventDefault(); newPrompt(true); render(); }
     if(key === 'c'){ e.preventDefault(); $('#btnShare')?.click(); }
     if(key === 'e'){ e.preventDefault(); $('#btnExport')?.click(); }
+    if(key === 'f'){
+      e.preventDefault();
+      focusMode = !focusMode;
+      setBoolPref(FOCUS_KEY, focusMode);
+      applyFocusMode(true);
+    }
     if(key === '?' || key === 'h'){ e.preventDefault(); openShortcuts(); }
   });
 
