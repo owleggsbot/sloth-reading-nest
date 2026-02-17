@@ -38,6 +38,8 @@ const state = {
   }
 };
 
+let bookFormLastFocusEl = null;
+
 function uid(){
   return Math.random().toString(16).slice(2) + '-' + Date.now().toString(16);
 }
@@ -380,6 +382,16 @@ function toast(msg){
   el._t = setTimeout(()=>{ el.style.opacity='0'; }, 2500);
 }
 
+function announce(msg, { assertive=false } = {}){
+  const el = $('#liveRegion');
+  if(!el) return;
+  el.setAttribute('aria-live', assertive ? 'assertive' : 'polite');
+  // Reset first so repeated messages still announce in SRs.
+  el.textContent = '';
+  // Use a microtask / next frame to ensure DOM mutation is detected.
+  setTimeout(()=>{ el.textContent = String(msg || ''); }, 20);
+}
+
 // ---- Timer ----
 function setTimerMinutes(min){
   const sec = clamp(min, 5, 180) * 60;
@@ -404,6 +416,7 @@ function tick(){
     $('#btnStart').disabled = false;
     $('#btnPause').disabled = true;
     $('#timerHint').textContent = 'Done. Log it (or just bask).';
+    announce('Timer complete.', { assertive: true });
     ding();
     return;
   }
@@ -417,6 +430,7 @@ function startTimer(){
   $('#btnStart').disabled = true;
   $('#btnPause').disabled = false;
   $('#timerHint').textContent = 'Tiny steps. No sprinting.';
+  announce('Timer started.');
   state.timer.raf = requestAnimationFrame(tick);
 }
 
@@ -428,6 +442,7 @@ function pauseTimer(){
   $('#btnStart').disabled = false;
   $('#btnPause').disabled = true;
   $('#timerHint').textContent = 'Paused. Sloths approve.';
+  announce('Timer paused.');
 }
 
 function resetTimer(){
@@ -439,6 +454,7 @@ function resetTimer(){
   $('#btnStart').disabled = false;
   $('#btnPause').disabled = true;
   $('#timerHint').textContent = 'Pick a book, then start slow.';
+  announce('Timer reset.');
   save();
   renderTimer();
 }
@@ -1157,20 +1173,42 @@ function wire(){
     if(modal && !modal.hidden) return; // don't trigger shortcuts while modal open
 
     const k = e.key;
-    if(k === ' '){
+    const key = String(k || '').toLowerCase();
+
+    if(key === 's'){ e.preventDefault(); toggleStartPause(); return; }
+    if(key === 'r'){ e.preventDefault(); resetTimer(); return; }
+
+    if(key === 'n'){
       e.preventDefault();
-      toggleStartPause();
+      $('#btnNew')?.click();
       return;
     }
 
-    const key = String(k || '').toLowerCase();
-    if(key === 's'){ e.preventDefault(); toggleStartPause(); }
-    if(key === 'r'){ e.preventDefault(); resetTimer(); }
-    if(key === 'l'){ e.preventDefault(); $('#btnLog')?.click(); }
-    if(key === 'p'){ e.preventDefault(); newPrompt(true); render(); }
-    if(key === 'c'){ e.preventDefault(); $('#btnShare')?.click(); }
-    if(key === 'e'){ e.preventDefault(); $('#btnExport')?.click(); }
-    if(key === '?' || key === 'h'){ e.preventDefault(); openShortcuts(); }
+    if(k === '/'){
+      e.preventDefault();
+      const el = $('#shelfSearch');
+      el?.focus?.();
+      el?.select?.();
+      return;
+    }
+
+    if(key === 'h'){
+      e.preventDefault();
+      const panel = $('#historyPanel');
+      if(panel){
+        panel.open = !panel.open;
+        // Keep keyboard users oriented: move focus to the summary.
+        const summary = panel.querySelector('summary');
+        summary?.focus?.();
+      }
+      return;
+    }
+
+    if(key === '?'){
+      e.preventDefault();
+      openShortcuts();
+      return;
+    }
   });
 
   // restore saved card toggles
@@ -1222,7 +1260,7 @@ function wire(){
     }
   });
 
-  $('#btnNew').addEventListener('click', ()=>openBookForm());
+  $('#btnNew').addEventListener('click', (e)=>openBookForm(null, e.currentTarget));
 
   $('#bookForm').addEventListener('submit', (e)=>{
     e.preventDefault();
@@ -1245,7 +1283,7 @@ function wire(){
     const b = getBook(id);
     if(!b) return;
     if(act === 'now') setNow(id);
-    if(act === 'edit') openBookForm(b);
+    if(act === 'edit') openBookForm(b, btn);
     if(act === 'finish'){
       b.status = 'finished';
       upsertBook({...b, updatedAt: Date.now()});
@@ -1294,8 +1332,10 @@ function wire(){
   render();
 }
 
-function openBookForm(book=null){
+function openBookForm(book=null, openerEl=null){
   if(state._snapshot) return;
+  bookFormLastFocusEl = openerEl || document.activeElement;
+
   $('#bookId').value = book?.id || '';
   $('#title').value = book?.title || '';
   $('#author').value = book?.author || '';
@@ -1312,6 +1352,11 @@ function closeBookForm(){
   $('#bookId').value = '';
   $('#bookForm').reset();
   $('.details').open = false;
+
+  // restore focus to the element that opened the form (New/Edit button)
+  const el = bookFormLastFocusEl;
+  bookFormLastFocusEl = null;
+  if(el && typeof el.focus === 'function' && document.contains(el)) el.focus();
 }
 
 // ---- Boot ----
