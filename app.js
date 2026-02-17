@@ -12,6 +12,14 @@ const state = {
   sessions: [],
   nowId: null,
   prompt: null,
+  // For gentle “please export” reminders (local-only).
+  backupNudge: {
+    everyNSessions: 30,
+    lastAt: null,
+    lastSessionCount: 0,
+  },
+  // In-memory undo only (not persisted).
+  _undo: null,
   timer: {
     totalSec: 20 * 60,
     leftSec: 20 * 60,
@@ -70,6 +78,15 @@ function load(){
     state.sessions = Array.isArray(data.sessions) ? data.sessions : [];
     state.nowId = data.nowId || null;
     state.prompt = data.prompt || null;
+
+    if(data.backupNudge && typeof data.backupNudge === 'object'){
+      const n = data.backupNudge;
+      const every = safeInt(n.everyNSessions);
+      state.backupNudge.everyNSessions = clamp(every ?? state.backupNudge.everyNSessions, 5, 500);
+      state.backupNudge.lastAt = Number.isFinite(n.lastAt) ? n.lastAt : null;
+      state.backupNudge.lastSessionCount = safeInt(n.lastSessionCount) ?? 0;
+    }
+
     if(data.timerMinutes){
       const sec = clamp(data.timerMinutes, 5, 180) * 60;
       state.timer.totalSec = sec;
@@ -104,6 +121,7 @@ function save(){
     sessions: state.sessions,
     nowId: state.nowId,
     prompt: state.prompt,
+    backupNudge: state.backupNudge,
     timerMinutes,
     weeklyGoal: state.weeklyGoal,
     card: state.card,
@@ -226,12 +244,65 @@ function upsertBook(book){
   render();
 }
 
+function cloneData(v){
+  try{
+    if(typeof structuredClone === 'function') return structuredClone(v);
+  }catch{}
+  return JSON.parse(JSON.stringify(v));
+}
+
+function offerUndo(label, snapshot){
+  // In-memory only by design (reload → undo is gone).
+  const undoId = uid();
+  const expiresAt = Date.now() + 10_000;
+
+  state._undo = {
+    id: undoId,
+    expiresAt,
+    snapshot,
+  };
+
+  const t = toastAction(label, [
+    {
+      label: 'Undo',
+      kind: 'primary',
+      onClick: ()=>{
+        if(!state._undo || state._undo.id !== undoId) return;
+        const snap = state._undo.snapshot;
+        state.books = cloneData(snap.books || []);
+        state.sessions = cloneData(snap.sessions || []);
+        state.nowId = snap.nowId || null;
+        // do not restore snapshot-only fields
+        state._undo = null;
+        save();
+        render();
+        toast('Restored.');
+      }
+    }
+  ], { durationMs: 10_000 });
+
+  // auto-expire
+  setTimeout(()=>{
+    if(state._undo && state._undo.id === undoId && Date.now() >= expiresAt){
+      state._undo = null;
+      t?.hide?.();
+    }
+  }, 10_200);
+}
+
 function deleteBook(id){
+  const snap = {
+    books: cloneData(state.books),
+    sessions: cloneData(state.sessions),
+    nowId: state.nowId,
+  };
+
   state.books = state.books.filter(b => b.id !== id);
   state.sessions = state.sessions.filter(s => s.bookId !== id);
   if(state.nowId === id) state.nowId = null;
   save();
   render();
+  offerUndo('Book deleted. For a moment, you can undo.', snap);
 }
 
 function exportData(){
@@ -352,8 +423,8 @@ function importDataFromFile(file){
   reader.readAsText(file);
 }
 
-function toast(msg){
-  // minimalist toast
+function toastAction(msg, actions=[], opts={}){
+  // minimalist toast with optional actions
   let el = $('#_toast');
   if(!el){
     el = document.createElement('div');
@@ -371,13 +442,58 @@ function toast(msg){
     el.style.fontWeight = '700';
     el.style.fontSize = '13px';
     el.style.zIndex = 9999;
-    el.style.maxWidth = 'min(560px, calc(100vw - 24px))';
+    el.style.maxWidth = 'min(680px, calc(100vw - 24px))';
+    el.style.display = 'flex';
+    el.style.alignItems = 'center';
+    el.style.gap = '10px';
+    el.style.boxSizing = 'border-box';
     document.body.appendChild(el);
   }
-  el.textContent = msg;
+
+  // reset content
+  el.innerHTML = '';
+  const text = document.createElement('div');
+  text.textContent = msg;
+  text.style.flex = '1 1 auto';
+  text.style.minWidth = '0';
+  el.appendChild(text);
+
+  const btnWrap = document.createElement('div');
+  btnWrap.style.display = 'flex';
+  btnWrap.style.gap = '8px';
+  btnWrap.style.flex = '0 0 auto';
+
+  for(const a of (actions||[])){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = a?.label || 'OK';
+    b.style.borderRadius = '12px';
+    b.style.padding = '8px 10px';
+    b.style.border = '1px solid rgba(233,242,236,.22)';
+    b.style.background = (a?.kind === 'primary') ? 'rgba(122,224,168,.22)' : 'rgba(255,255,255,.06)';
+    b.style.color = 'rgba(233,242,236,.92)';
+    b.style.fontWeight = '800';
+    b.style.cursor = 'pointer';
+    b.addEventListener('click', ()=>{
+      try{ a?.onClick?.(); }finally{ hideToast(); }
+    });
+    btnWrap.appendChild(b);
+  }
+  if(btnWrap.childElementCount) el.appendChild(btnWrap);
+
+  function hideToast(){
+    el.style.opacity = '0';
+  }
+
   el.style.opacity = '1';
   clearTimeout(el._t);
-  el._t = setTimeout(()=>{ el.style.opacity='0'; }, 2500);
+  const ms = Number.isFinite(opts?.durationMs) ? opts.durationMs : 2500;
+  if(ms > 0) el._t = setTimeout(()=>{ hideToast(); }, ms);
+  return { hide: hideToast, el };
+}
+
+function toast(msg){
+  toastAction(msg, [], { durationMs: 2500 });
 }
 
 // ---- Timer ----
@@ -462,6 +578,33 @@ function ding(){
   }
 }
 
+function maybeNudgeBackup(){
+  // Gentle: only after logging sessions (not on load/import), and only occasionally.
+  const n = state.backupNudge;
+  const every = clamp(safeInt(n.everyNSessions) ?? 30, 5, 500);
+  const count = state.sessions.length;
+  if(count <= 0) return;
+
+  // Don’t repeat for the same count.
+  if((n.lastSessionCount || 0) >= count) return;
+
+  // Trigger at milestones: every N sessions.
+  if(count % every !== 0) return;
+
+  n.lastSessionCount = count;
+  n.lastAt = Date.now();
+  save();
+
+  toastAction(
+    'Want a tiny backup? Export your data (it stays local).',
+    [
+      { label: 'Export', kind: 'primary', onClick: ()=>exportData() },
+      { label: 'Later', kind: 'ghost', onClick: ()=>{} },
+    ],
+    { durationMs: 10_000 }
+  );
+}
+
 function logSession(pagesRead, moodAfter){
   const nowBook = state.nowId ? getBook(state.nowId) : null;
   if(!nowBook){
@@ -481,13 +624,20 @@ function logSession(pagesRead, moodAfter){
   save();
   render();
   toast('Session logged. Slow wins.');
+  maybeNudgeBackup();
 }
 
 function clearSessions(){
-  if(!confirm('Clear ALL session logs? This cannot be undone.')) return;
+  if(!confirm('Clear ALL session logs? You’ll have ~10 seconds to undo.')) return;
+  const snap = {
+    books: cloneData(state.books),
+    sessions: cloneData(state.sessions),
+    nowId: state.nowId,
+  };
   state.sessions = [];
   save();
   render();
+  offerUndo('Sessions cleared. You can undo for ~10s.', snap);
 }
 
 // ---- Share link ----
@@ -1251,7 +1401,7 @@ function wire(){
       upsertBook({...b, updatedAt: Date.now()});
     }
     if(act === 'del'){
-      if(confirm(`Delete “${b.title}” and its sessions?`)) deleteBook(id);
+      if(confirm(`Delete “${b.title}” and its sessions? You’ll have ~10 seconds to undo.`)) deleteBook(id);
     }
   });
 
