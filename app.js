@@ -188,6 +188,69 @@ function seededRand(seedStr){
   return sfc32(seed(), seed(), seed(), seed());
 }
 
+function hsla(h, s, l, a=1){
+  // h:0-360, s/l:0-100
+  const hh = ((h%360)+360)%360;
+  const ss = clamp(s, 0, 100);
+  const ll = clamp(l, 0, 100);
+  const aa = clamp(a, 0, 1);
+  return `hsla(${hh}, ${ss}%, ${ll}%, ${aa})`;
+}
+
+const THEME_STYLES = ['moss','moonlit','sunleaf'];
+
+function themeForBook({title='', author='', theme=null}={}){
+  const seedStr = `${title}::${author}`.trim() || 'sloth';
+  const rand = seededRand(seedStr);
+
+  // style: user-picked, else auto-pick deterministically
+  let style = theme;
+  if(!THEME_STYLES.includes(style)){
+    style = THEME_STYLES[Math.floor(rand()*THEME_STYLES.length)] || 'moss';
+  }
+
+  // base hues per style (with slight seeded drift)
+  const drift = (rand()*26) - 13;
+  const baseHue = {
+    moss: 140,
+    moonlit: 210,
+    sunleaf: 62,
+  }[style] + drift;
+
+  const accentHue = baseHue + (style === 'moonlit' ? 48 : 34) + (rand()*18);
+
+  // tuned for dark background + readable light text
+  const bg0 = hsla(baseHue, style==='sunleaf'? 38: 34, 10, 1);
+  const bg1 = hsla(baseHue+18, style==='moonlit'? 42: 34, 14, 1);
+
+  const glow1 = hsla(accentHue, style==='moonlit'? 68: 62, 62, style==='moonlit'? 0.18: 0.22);
+  const glow2 = hsla(accentHue+70, 70, 64, 0.16);
+
+  const panelFill = 'rgba(255,255,255,.045)';
+  const panelStroke = 'rgba(233,242,236,.13)';
+
+  const promptFill = hsla(accentHue, 55, 42, 0.14);
+  const promptStroke = hsla(accentHue, 60, 55, 0.24);
+
+  return { style, seedStr, baseHue, accentHue, bg0, bg1, glow1, glow2, panelFill, panelStroke, promptFill, promptStroke };
+}
+
+function drawTexture(ctx, W, H, seedStr){
+  // Subtle film grain / paper speckle (deterministic per seed)
+  const r = seededRand(seedStr + '::texture');
+  ctx.save();
+  ctx.globalAlpha = 0.05;
+  ctx.fillStyle = 'rgba(255,255,255,.9)';
+  const dots = 1400;
+  for(let i=0;i<dots;i++){
+    const x = Math.floor(r()*W);
+    const y = Math.floor(r()*H);
+    const s = r() < 0.92 ? 1 : 2;
+    ctx.fillRect(x, y, s, s);
+  }
+  ctx.restore();
+}
+
 const PROMPTS = [
   'Read one paragraph like it’s a leaf you’re tasting for the first time.',
   'Pick a sentence you love and copy it somewhere. Tiny shrine.',
@@ -499,6 +562,7 @@ function makeSnapshot(){
     t: b?.title || null,
     a: b?.author || null,
     s: b?.status || null,
+    th: b?.theme || null,
     p: b?.pages || null,
     m7: totalMin7,
     pr: state.prompt,
@@ -618,29 +682,36 @@ function drawCard(){
   const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
 
-  // background gradient
+  const snap = state._snapshot || makeSnapshot();
+  const tb = { title: snap.t || '', author: snap.a || '', theme: snap.th || null };
+  const th = themeForBook(tb);
+
+  // background gradient (per-book seeded)
   const g = ctx.createLinearGradient(0,0,W,H);
-  g.addColorStop(0, '#0b1210');
-  g.addColorStop(1, '#0f1a16');
+  g.addColorStop(0, th.bg0);
+  g.addColorStop(1, th.bg1);
   ctx.fillStyle = g;
   ctx.fillRect(0,0,W,H);
 
   // glow
-  const rg = ctx.createRadialGradient(220,140,10, 220,140,520);
-  rg.addColorStop(0, 'rgba(122,224,168,.25)');
-  rg.addColorStop(1, 'rgba(122,224,168,0)');
+  const rg = ctx.createRadialGradient(240,150,10, 240,150,560);
+  rg.addColorStop(0, th.glow1);
+  rg.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = rg;
   ctx.fillRect(0,0,W,H);
 
-  const rg2 = ctx.createRadialGradient(980,120,10, 980,120,520);
-  rg2.addColorStop(0, 'rgba(134,184,255,.20)');
-  rg2.addColorStop(1, 'rgba(134,184,255,0)');
+  const rg2 = ctx.createRadialGradient(980,120,10, 980,120,560);
+  rg2.addColorStop(0, th.glow2);
+  rg2.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = rg2;
   ctx.fillRect(0,0,W,H);
 
+  // subtle texture to feel more "printed"
+  drawTexture(ctx, W, H, th.seedStr);
+
   // panel
-  ctx.fillStyle = 'rgba(255,255,255,.04)';
-  ctx.strokeStyle = 'rgba(233,242,236,.12)';
+  ctx.fillStyle = th.panelFill;
+  ctx.strokeStyle = th.panelStroke;
   ctx.lineWidth = 2;
   roundRect(ctx, 44, 44, W-88, H-88, 28);
   ctx.fill();
@@ -648,7 +719,6 @@ function drawCard(){
 
   drawSloth(ctx, 110, 170, 1.0);
 
-  const snap = state._snapshot || makeSnapshot();
   const title = snap.t || (state.nowId ? getBook(state.nowId)?.title : null) || 'A slow little reading session';
   const author = snap.a || (state.nowId ? getBook(state.nowId)?.author : null) || '';
 
@@ -695,8 +765,8 @@ function drawCard(){
   if(state.card.includePrompt){
     const pr = snap.pr || state.prompt;
     if(pr){
-      ctx.fillStyle = 'rgba(122,224,168,.16)';
-      ctx.strokeStyle = 'rgba(122,224,168,.26)';
+      ctx.fillStyle = th.promptFill;
+      ctx.strokeStyle = th.promptStroke;
       roundRect(ctx, 360, 360, 770, 140, 22);
       ctx.fill();
       ctx.stroke();
@@ -1231,8 +1301,9 @@ function wire(){
     const author = $('#author').value.trim();
     const pages = safeInt($('#pages').value);
     const status = $('#status').value;
+    const theme = $('#theme').value || null;
     const notes = $('#notes').value.trim();
-    upsertBook({id, title, author, pages, status, notes, updatedAt: Date.now()});
+    upsertBook({id, title, author, pages, status, theme, notes, updatedAt: Date.now()});
     closeBookForm();
   });
   $('#btnCancelEdit').addEventListener('click', closeBookForm);
@@ -1301,6 +1372,7 @@ function openBookForm(book=null){
   $('#author').value = book?.author || '';
   $('#pages').value = book?.pages ?? '';
   $('#status').value = book?.status || 'reading';
+  $('#theme').value = book?.theme || '';
   $('#notes').value = book?.notes || '';
   // open details element
   const d = $('.details');
