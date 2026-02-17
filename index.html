@@ -29,7 +29,7 @@
   </header>
 
   <main class="grid">
-    <section class="card">
+    <section class="card" id="cardNowReading">
       <div class="card__head">
         <h2>Now reading</h2>
         <div class="row gap">
@@ -84,11 +84,15 @@
       </details>
     </section>
 
-    <section class="card">
+    <section class="card" id="cardTimer">
       <div class="card__head">
         <h2>Session timer</h2>
-        <div class="row gap">
-          <select id="sessionMinutes" class="select" aria-label="Session length">
+        <div class="row gap" style="flex-wrap:wrap; justify-content:flex-end">
+          <button id="btnFocusMode" class="btn btn--ghost" type="button" aria-pressed="false" title="Toggle Focus Mode (F)">Focus mode</button>
+          <label class="row gap muted" title="Keep the screen awake while reading (Wake Lock API)">
+            <input id="toggleWakeLock" type="checkbox" /> wake lock
+          </label>
+          <select id="sessionMinutes" class="select" aria-label="Session length" style="max-width:160px">
             <option value="10">10 min</option>
             <option value="15">15 min</option>
             <option value="20" selected>20 min</option>
@@ -98,6 +102,9 @@
           </select>
         </div>
       </div>
+
+      <p id="wakeLockStatus" class="muted" style="margin: 0 0 10px" hidden></p>
+      <div id="focusLive" class="srOnly" aria-live="polite"></div>
 
       <div class="timer">
         <div class="timer__face">
@@ -139,7 +146,7 @@
       <div class="sessions" id="sessions"></div>
     </section>
 
-    <section class="card">
+    <section class="card" id="cardShelf">
       <div class="card__head">
         <h2>Your shelf</h2>
         <div>
@@ -165,7 +172,7 @@
       <div class="shelf" id="shelf"></div>
     </section>
 
-    <section class="card">
+    <section class="card" id="cardPrivacy">
       <div class="card__head">
         <h2>Privacy</h2>
       </div>
@@ -175,7 +182,7 @@
       </div>
     </section>
 
-    <section class="card card--wide">
+    <section class="card card--wide" id="cardPreview">
       <div class="card__head">
         <h2>Reading card preview</h2>
         <div class="row gap">
@@ -212,8 +219,9 @@
           <li><kbd>P</kbd> — new cozy prompt</li>
           <li><kbd>C</kbd> — copy share link</li>
           <li><kbd>E</kbd> — export reading card</li>
+          <li><kbd>F</kbd> — focus mode</li>
           <li><kbd>?</kbd> / <kbd>H</kbd> — open this help</li>
-          <li><kbd>Esc</kbd> — close dialogs</li>
+          <li><kbd>Esc</kbd> — close dialogs (and exits focus mode)</li>
         </ul>
       </div>
     </div>
