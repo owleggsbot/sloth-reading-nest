@@ -28,6 +28,17 @@
     </div>
   </header>
 
+  <div id="backupBanner" class="banner" role="region" aria-label="Backup reminder" hidden>
+    <div class="banner__text">
+      <strong>Want to back up your nest?</strong>
+      <span class="muted">Your data lives in this browser (localStorage). Export a JSON backup anytime.</span>
+    </div>
+    <div class="banner__actions">
+      <button id="btnBackupExport" class="btn btn--ghost" type="button">Export data (JSON)</button>
+      <button id="btnBackupDismiss" class="btn btn--ghost" type="button">Dismiss (7 days)</button>
+    </div>
+  </div>
+
   <main class="grid">
     <section class="card">
       <div class="card__head">

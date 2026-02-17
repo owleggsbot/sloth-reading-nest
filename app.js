@@ -35,6 +35,11 @@ const state = {
   shelfFilter: {
     q: '',
     status: 'all'
+  },
+  backup: {
+    lastBackupPromptAt: null,
+    dismissedUntil: null,
+    lastExportAt: null,
   }
 };
 
@@ -92,6 +97,13 @@ function load(){
       state.card.includePrompt = (c.includePrompt !== undefined) ? Boolean(c.includePrompt) : state.card.includePrompt;
       state.card.includeWeeklyGoal = Boolean(c.includeWeeklyGoal);
     }
+
+    if(data.backup && typeof data.backup === 'object'){
+      const b = data.backup;
+      state.backup.lastBackupPromptAt = Number.isFinite(b.lastBackupPromptAt) ? b.lastBackupPromptAt : null;
+      state.backup.dismissedUntil = Number.isFinite(b.dismissedUntil) ? b.dismissedUntil : null;
+      state.backup.lastExportAt = Number.isFinite(b.lastExportAt) ? b.lastExportAt : null;
+    }
   }catch(e){
     console.warn('load failed', e);
   }
@@ -107,6 +119,7 @@ function save(){
     timerMinutes,
     weeklyGoal: state.weeklyGoal,
     card: state.card,
+    backup: state.backup,
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
@@ -235,10 +248,16 @@ function deleteBook(id){
 }
 
 function exportData(){
+  const now = Date.now();
+  // record export time for backup prompting logic
+  state.backup.lastExportAt = now;
+  save();
+  renderBackupBanner();
+
   const payload = {
     app: 'sloth-reading-nest',
     version: 1,
-    exportedAt: Date.now(),
+    exportedAt: now,
     data: {
       books: state.books,
       sessions: state.sessions,
@@ -247,6 +266,7 @@ function exportData(){
       timerMinutes: Math.round(state.timer.totalSec/60),
       weeklyGoal: state.weeklyGoal,
       card: state.card,
+      backup: state.backup,
     }
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
@@ -340,6 +360,13 @@ function importDataFromFile(file){
         state.card.includeStats = (c.includeStats !== undefined) ? Boolean(c.includeStats) : state.card.includeStats;
         state.card.includePrompt = (c.includePrompt !== undefined) ? Boolean(c.includePrompt) : state.card.includePrompt;
         state.card.includeWeeklyGoal = Boolean(c.includeWeeklyGoal);
+      }
+
+      if(d.backup && typeof d.backup === 'object'){
+        const b = d.backup;
+        state.backup.lastBackupPromptAt = Number.isFinite(b.lastBackupPromptAt) ? b.lastBackupPromptAt : null;
+        state.backup.dismissedUntil = Number.isFinite(b.dismissedUntil) ? b.dismissedUntil : null;
+        state.backup.lastExportAt = Number.isFinite(b.lastExportAt) ? b.lastExportAt : null;
       }
 
       save();
@@ -847,6 +874,48 @@ function computeStats(){
   return { min7, minToday, sessionCount: state.sessions.length };
 }
 
+// ---- Backup reminder banner ----
+function shouldShowBackupBanner(){
+  if(state._snapshot) return false;
+  const now = Date.now();
+  const b = state.backup || {};
+
+  if(Number.isFinite(b.dismissedUntil) && now < b.dismissedUntil) return false;
+
+  const count = state.sessions.length;
+  if(count <= 0) return false; // don’t nag on first open
+
+  const triggerSessions = (count % 10 === 0);
+  const lastExportAt = Number.isFinite(b.lastExportAt) ? b.lastExportAt : null;
+  const triggerExportStale = (!lastExportAt) || ((now - lastExportAt) > 14 * 864e5);
+
+  if(!(triggerSessions || triggerExportStale)) return false;
+
+  // anti-spam: if we already prompted recently, wait.
+  if(Number.isFinite(b.lastBackupPromptAt) && (now - b.lastBackupPromptAt) < 6 * 3600e3) return false;
+
+  return true;
+}
+
+function renderBackupBanner(){
+  const el = $('#backupBanner');
+  if(!el) return;
+
+  const show = shouldShowBackupBanner();
+  if(show && el.hidden){
+    state.backup.lastBackupPromptAt = Date.now();
+    save();
+  }
+  el.hidden = !show;
+}
+
+function dismissBackupBanner(days=7){
+  const now = Date.now();
+  state.backup.dismissedUntil = now + (days * 864e5);
+  save();
+  renderBackupBanner();
+}
+
 // ---- Rendering ----
 function renderNow(){
   const box = $('#nowReading');
@@ -1024,6 +1093,7 @@ function escapeHtml(s){
 }
 
 function render(){
+  renderBackupBanner();
   renderNow();
   renderPrompt();
   renderTimer();
@@ -1258,6 +1328,10 @@ function wire(){
   $('#btnExportData').addEventListener('click', exportData);
   $('#btnExportCSV').addEventListener('click', exportSessionsCSV);
   $('#btnImportData').addEventListener('click', ()=>$('#importFile').click());
+
+  // backup reminder banner
+  if($('#btnBackupExport')) $('#btnBackupExport').addEventListener('click', ()=>{ exportData(); toast('Backup exported. Cozy and safe.'); });
+  if($('#btnBackupDismiss')) $('#btnBackupDismiss').addEventListener('click', ()=>{ dismissBackupBanner(7); toast('Okay. I’ll hush for 7 days.'); });
   $('#importFile').addEventListener('change', (e)=>{
     const f = e.target.files?.[0];
     if(f) importDataFromFile(f);
