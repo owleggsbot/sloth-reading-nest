@@ -116,6 +116,11 @@ function todayKey(){
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
+function dayKey(ts=Date.now()){
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
 function weekKey(ts=Date.now()){
   // Local time week starting Monday.
   const d = new Date(ts);
@@ -1023,12 +1028,336 @@ function escapeHtml(s){
   }[c]));
 }
 
+function computeInsights(){
+  const now = Date.now();
+
+  // last 8 week starts (Mon)
+  const weeks = [];
+  {
+    const wkStr = weekKey(now);
+    const [y,m,d] = wkStr.split('-').map(n=>parseInt(n,10));
+    const base = new Date(y, (m-1), d);
+    base.setHours(0,0,0,0);
+    for(let i=7;i>=0;i--){
+      const dt = new Date(base);
+      dt.setDate(dt.getDate() - i*7);
+      weeks.push({
+        key: weekKey(dt.getTime()),
+        startTs: dt.getTime(),
+        label: dt.toLocaleDateString(undefined, {month:'short', day:'2-digit'})
+      });
+    }
+  }
+
+  const minutesByWeek = new Map();
+  const sessionsByWeek = new Map();
+  for(const s of state.sessions){
+    if(!s || !Number.isFinite(s.at)) continue;
+    const k = weekKey(s.at);
+    minutesByWeek.set(k, (minutesByWeek.get(k)||0) + (s.minutes||0));
+    sessionsByWeek.set(k, (sessionsByWeek.get(k)||0) + 1);
+  }
+
+  const weekly = weeks.map(w => ({
+    ...w,
+    minutes: minutesByWeek.get(w.key)||0,
+    sessions: sessionsByWeek.get(w.key)||0,
+  }));
+
+  // last 35 days (oldest → newest)
+  const days = [];
+  const start = new Date();
+  start.setHours(0,0,0,0);
+  start.setDate(start.getDate() - 34);
+  for(let i=0;i<35;i++){
+    const dt = new Date(start);
+    dt.setDate(start.getDate() + i);
+    const key = dayKey(dt.getTime());
+    days.push({
+      key,
+      ts: dt.getTime(),
+      label: dt.toLocaleDateString(undefined, {month:'short', day:'2-digit'}),
+      minutes: 0,
+    });
+  }
+
+  const minutesByDay = new Map();
+  for(const s of state.sessions){
+    if(!s || !Number.isFinite(s.at)) continue;
+    const k = dayKey(s.at);
+    minutesByDay.set(k, (minutesByDay.get(k)||0) + (s.minutes||0));
+  }
+  for(const d of days) d.minutes = minutesByDay.get(d.key)||0;
+
+  // top book by minutes (last 35 days)
+  const dayKeys = new Set(days.map(d=>d.key));
+  const minutesByBook = new Map();
+  for(const s of state.sessions){
+    if(!s || !Number.isFinite(s.at)) continue;
+    if(!dayKeys.has(dayKey(s.at))) continue;
+    if(!s.bookId) continue;
+    minutesByBook.set(s.bookId, (minutesByBook.get(s.bookId)||0) + (s.minutes||0));
+  }
+  let topBookId = null;
+  let topBookMinutes = 0;
+  for(const [id, min] of minutesByBook.entries()){
+    if(min > topBookMinutes){ topBookMinutes = min; topBookId = id; }
+  }
+  const topBook = topBookId ? getBook(topBookId) : null;
+
+  const thisWeek = weekly[weekly.length-1] || { minutes: 0, sessions: 0 };
+
+  return {
+    weekly,
+    days,
+    topBook: topBook ? { title: topBook.title, author: topBook.author, minutes: topBookMinutes } : null,
+    summary: {
+      thisWeekMinutes: thisWeek.minutes||0,
+      thisWeekSessions: thisWeek.sessions||0,
+    }
+  };
+}
+
+function renderInsights(){
+  const weeklyEl = $('#insightsWeekly');
+  const heatEl = $('#insightsHeatmap');
+  const topEl = $('#insightsTop');
+  const a11yEl = $('#insightsA11y');
+  if(!weeklyEl || !heatEl) return;
+
+  const ins = computeInsights();
+
+  // weekly bars
+  const maxW = Math.max(1, ...ins.weekly.map(w=>w.minutes));
+  weeklyEl.innerHTML = '';
+  for(const w of ins.weekly){
+    const wrap = document.createElement('div');
+    wrap.className = 'weeklyBar';
+    const pct = Math.round((w.minutes / maxW) * 100);
+    wrap.innerHTML = `
+      <div class="weeklyBar__fill" title="Week of ${escapeHtml(w.label)}: ${w.minutes} min" style="transform: scaleY(${Math.max(0.02, pct/100)})"></div>
+      <div class="weeklyBar__value">${w.minutes}</div>
+      <div class="weeklyBar__label">${escapeHtml(w.label)}</div>
+    `;
+    weeklyEl.appendChild(wrap);
+  }
+
+  // a11y text summary
+  if(a11yEl){
+    const m = ins.summary.thisWeekMinutes;
+    const s = ins.summary.thisWeekSessions;
+    a11yEl.textContent = (state.sessions.length)
+      ? `This week: ${m} minutes across ${s} sessions.`
+      : 'No reading sessions yet.';
+  }
+
+  // heatmap (35 days, 7 cols)
+  const maxD = Math.max(1, ...ins.days.map(d=>d.minutes));
+  heatEl.innerHTML = '';
+  for(const d of ins.days){
+    const ratio = d.minutes / maxD;
+    const lvl = d.minutes <= 0 ? 0 : clamp(Math.ceil(ratio * 4), 1, 4);
+    const cell = document.createElement('div');
+    cell.className = 'heatCell';
+    cell.dataset.lvl = String(lvl);
+    cell.title = `${d.label}: ${d.minutes} min`;
+    heatEl.appendChild(cell);
+  }
+
+  if(topEl){
+    if(!state.sessions.length) topEl.textContent = 'Log a session and your heatmap will bloom.';
+    else if(ins.topBook) topEl.textContent = `Top book (last 35 days): ${ins.topBook.title}${ins.topBook.author ? ` — ${ins.topBook.author}` : ''} (${ins.topBook.minutes} min)`;
+    else topEl.textContent = 'Top book (last 35 days): —';
+  }
+
+  drawInsightsPreview(ins);
+}
+
+function drawInsightsPreview(ins){
+  const canvas = $('#insightsCanvas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if(!ctx) return;
+  drawInsightsCanvas(ctx, canvas.width, canvas.height, ins);
+}
+
+function drawInsightsCanvas(ctx, W, H, ins){
+  // background
+  ctx.clearRect(0,0,W,H);
+  const bg = ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0, '#0f1c16');
+  bg.addColorStop(1, '#0a1310');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0,0,W,H);
+
+  // glow
+  ctx.save();
+  ctx.globalAlpha = 0.25;
+  const g = ctx.createRadialGradient(W*0.18, H*0.12, 10, W*0.18, H*0.12, W*0.8);
+  g.addColorStop(0, 'rgba(125,245,192,0.45)');
+  g.addColorStop(1, 'rgba(125,245,192,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,W,H);
+  ctx.restore();
+
+  // title
+  ctx.fillStyle = 'rgba(255,255,255,0.94)';
+  ctx.font = '800 44px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+  ctx.fillText('Reading insights', 56, 84);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.72)';
+  ctx.font = '16px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+  const subtitle = state.sessions.length
+    ? `This week: ${ins.summary.thisWeekMinutes} min across ${ins.summary.thisWeekSessions} sessions` 
+    : 'No sessions yet — start tiny, stay cozy.';
+  ctx.fillText(subtitle, 56, 114);
+
+  // layout boxes
+  const pad = 56;
+  const boxTop = 150;
+  const boxH = H - boxTop - 56;
+  const boxW = (W - pad*2 - 24) / 2;
+
+  // Weekly chart
+  drawPanel(ctx, pad, boxTop, boxW, boxH, 'Weekly minutes (last 8 weeks)');
+  drawWeeklyChart(ctx, pad, boxTop, boxW, boxH, ins);
+
+  // Heatmap
+  drawPanel(ctx, pad + boxW + 24, boxTop, boxW, boxH, 'Last 35 days');
+  drawHeatmap(ctx, pad + boxW + 24, boxTop, boxW, boxH, ins);
+
+  // footer
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.font = '14px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+  ctx.fillText('Sloth Reading Nest · local only · exported as PNG', 56, H - 28);
+}
+
+function drawPanel(ctx, x,y,w,h,title){
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,0.05)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+  ctx.lineWidth = 2;
+  roundRect(ctx, x, y, w, h, 20);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.86)';
+  ctx.font = '700 18px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+  ctx.fillText(title, x + 18, y + 34);
+  ctx.restore();
+}
+
+function drawWeeklyChart(ctx, x,y,w,h,ins){
+  const chartX = x + 18;
+  const chartY = y + 56;
+  const chartW = w - 36;
+  const chartH = h - 84;
+
+  const max = Math.max(1, ...ins.weekly.map(w=>w.minutes));
+  const barW = chartW / ins.weekly.length;
+
+  for(let i=0;i<ins.weekly.length;i++){
+    const ww = ins.weekly[i];
+    const val = ww.minutes;
+    const bh = Math.round((val/max) * (chartH - 28));
+    const bx = chartX + i*barW + 6;
+    const by = chartY + (chartH - 28) - bh;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(125,245,192,0.85)';
+    roundRect(ctx, bx, by, barW - 12, bh, 12);
+    ctx.fill();
+    ctx.restore();
+
+    // labels
+    ctx.fillStyle = 'rgba(255,255,255,0.62)';
+    ctx.font = '12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(val), bx + (barW-12)/2, chartY + (chartH - 10));
+  }
+  ctx.textAlign = 'start';
+}
+
+function drawHeatmap(ctx, x,y,w,h,ins){
+  const topBookLine = ins.topBook
+    ? `Top book: ${ins.topBook.title} (${ins.topBook.minutes} min)`
+    : 'Top book: —';
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,0.65)';
+  ctx.font = '12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+  ctx.fillText(topBookLine, x + 18, y + h - 18);
+  ctx.restore();
+
+  const gridX = x + 18;
+  const gridY = y + 56;
+  const gridW = w - 36;
+  const gridH = h - 92;
+
+  const cols = 7;
+  const rows = 5;
+  const cell = Math.floor(Math.min((gridW - (cols-1)*8)/cols, (gridH - (rows-1)*8)/rows));
+  const gap = 8;
+
+  const max = Math.max(1, ...ins.days.map(d=>d.minutes));
+
+  for(let i=0;i<ins.days.length;i++){
+    const d = ins.days[i];
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    const ratio = d.minutes / max;
+    const lvl = d.minutes <= 0 ? 0 : clamp(Math.ceil(ratio * 4), 1, 4);
+
+    const cx = gridX + c*(cell+gap);
+    const cy = gridY + r*(cell+gap);
+
+    const fill = [
+      'rgba(255,255,255,0.06)',
+      'rgba(125,245,192,0.18)',
+      'rgba(125,245,192,0.32)',
+      'rgba(125,245,192,0.48)',
+      'rgba(125,245,192,0.68)',
+    ][lvl];
+
+    ctx.save();
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.lineWidth = 2;
+    roundRect(ctx, cx, cy, cell, cell, 14);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+async function exportInsightsPNG(){
+  const ins = computeInsights();
+  const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+  const W = 1200;
+  const H = 630;
+
+  const c = document.createElement('canvas');
+  c.width = W * dpr;
+  c.height = H * dpr;
+  const ctx = c.getContext('2d');
+  ctx.scale(dpr, dpr);
+  drawInsightsCanvas(ctx, W, H, ins);
+
+  const url = c.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sloth-reading-nest-insights-${todayKey()}.png`;
+  a.click();
+  toast('Insights exported (PNG).');
+}
+
 function render(){
   renderNow();
   renderPrompt();
   renderTimer();
   renderStats();
   renderSessions();
+  renderInsights();
   renderShelf();
   drawCard();
 }
@@ -1096,6 +1425,8 @@ function wire(){
 
   $('#btnExport').addEventListener('click', exportCard);
   $('#btnShareCard').addEventListener('click', shareCard);
+  const btnExportInsights = $('#btnExportInsights');
+  if(btnExportInsights) btnExportInsights.addEventListener('click', exportInsightsPNG);
 
   // shortcuts modal + global keyboard shortcuts
   const modal = $('#shortcutsModal');

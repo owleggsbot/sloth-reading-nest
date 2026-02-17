@@ -139,6 +139,34 @@
       <div class="sessions" id="sessions"></div>
     </section>
 
+    <section class="card card--wide">
+      <div class="card__head">
+        <h2>Insights</h2>
+        <div class="row gap">
+          <button id="btnExportInsights" class="btn" type="button">Export insights PNG</button>
+        </div>
+      </div>
+
+      <div class="insights">
+        <div class="insights__col">
+          <h3 class="h3">Weekly minutes (last 8 weeks)</h3>
+          <div id="insightsWeekly" class="weeklyBars" role="img" aria-label="Weekly minutes chart"></div>
+          <p id="insightsA11y" class="srOnly" aria-live="polite"></p>
+        </div>
+
+        <div class="insights__col">
+          <h3 class="h3">Last 35 days</h3>
+          <div id="insightsHeatmap" class="heatmap" role="img" aria-label="Reading minutes heatmap"></div>
+          <p id="insightsTop" class="muted"></p>
+        </div>
+      </div>
+
+      <div class="preview">
+        <canvas id="insightsCanvas" width="1200" height="630" aria-label="Insights export preview"></canvas>
+        <p class="muted">Tip: the export is a PNG (great for sharing). It reflects your local sessions only.</p>
+      </div>
+    </section>
+
     <section class="card">
       <div class="card__head">
         <h2>Your shelf</h2>
