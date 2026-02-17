@@ -6,6 +6,10 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 const STORAGE_KEY = 'sloth-reading-nest:v1';
+const SNAPSHOTS_KEY = 'sloth-reading-nest:v1:snapshots';
+const UNDO_KEY = 'sloth-reading-nest:v1:undo';
+const SNAPSHOTS_MAX = 5;
+const UNDO_TTL_MS = 30 * 1000;
 
 const state = {
   books: [],
@@ -97,6 +101,50 @@ function load(){
   }
 }
 
+function readJSON(key, fallback){
+  try{
+    const raw = localStorage.getItem(key);
+    if(!raw) return fallback;
+    return JSON.parse(raw);
+  }catch(e){
+    return fallback;
+  }
+}
+
+function writeJSON(key, value){
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function pruneSnapshots(list){
+  const arr = Array.isArray(list) ? list.filter(x => x && typeof x === 'object' && typeof x.raw === 'string') : [];
+  arr.sort((a,b)=>(b.at||0)-(a.at||0));
+  return arr.slice(0, SNAPSHOTS_MAX);
+}
+
+function pushRestorePoint(raw){
+  if(!raw || typeof raw !== 'string') return;
+  let list = readJSON(SNAPSHOTS_KEY, []);
+  list = Array.isArray(list) ? list : [];
+
+  // de-dupe consecutive identical blobs
+  const newest = list[0];
+  if(newest?.raw === raw) return;
+
+  list.unshift({ at: Date.now(), raw });
+  list = pruneSnapshots(list);
+
+  // localStorage can throw if quota exceeded; fall back to smaller history
+  for(;;){
+    try{
+      writeJSON(SNAPSHOTS_KEY, list);
+      break;
+    }catch(e){
+      if(list.length <= 1) break;
+      list = list.slice(0, list.length - 1);
+    }
+  }
+}
+
 function save(){
   const timerMinutes = Math.round(state.timer.totalSec/60);
   const data = {
@@ -108,7 +156,9 @@ function save(){
     weeklyGoal: state.weeklyGoal,
     card: state.card,
   };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  const raw = JSON.stringify(data);
+  localStorage.setItem(STORAGE_KEY, raw);
+  pushRestorePoint(raw);
 }
 
 function todayKey(){
@@ -380,6 +430,92 @@ function toast(msg){
   el._t = setTimeout(()=>{ el.style.opacity='0'; }, 2500);
 }
 
+function clearUndo(){
+  try{ localStorage.removeItem(UNDO_KEY); }catch{}
+  const el = $('#_undo');
+  if(el) el.remove();
+}
+
+function setUndoRecord(record){
+  try{ writeJSON(UNDO_KEY, record); }catch{}
+}
+
+function getUndoRecord(){
+  const r = readJSON(UNDO_KEY, null);
+  if(!r || typeof r !== 'object') return null;
+  if(!Number.isFinite(r.expiresAt)) return null;
+  if(Date.now() > r.expiresAt) return null;
+  if(typeof r.mainRaw !== 'string') return null;
+  return r;
+}
+
+function showUndoBanner(){
+  const r = getUndoRecord();
+  if(!r) return;
+
+  let el = $('#_undo');
+  if(!el){
+    el = document.createElement('div');
+    el.id = '_undo';
+    el.style.position = 'fixed';
+    el.style.left = '50%';
+    el.style.bottom = '16px';
+    el.style.transform = 'translateX(-50%)';
+    el.style.padding = '10px 12px';
+    el.style.borderRadius = '16px';
+    el.style.border = '1px solid rgba(233,242,236,.18)';
+    el.style.background = 'rgba(5,10,8,.82)';
+    el.style.backdropFilter = 'blur(10px)';
+    el.style.color = 'white';
+    el.style.zIndex = 10000;
+    el.style.maxWidth = 'min(720px, calc(100vw - 24px))';
+    el.style.display = 'flex';
+    el.style.alignItems = 'center';
+    el.style.gap = '10px';
+
+    const msg = document.createElement('div');
+    msg.id = '_undo_msg';
+    msg.style.fontWeight = '700';
+    msg.style.fontSize = '13px';
+    msg.style.lineHeight = '1.2';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Undo';
+    btn.className = 'btn';
+    btn.onclick = ()=>{
+      try{
+        localStorage.setItem(STORAGE_KEY, r.mainRaw);
+        if(typeof r.snapshotsRaw === 'string') localStorage.setItem(SNAPSHOTS_KEY, r.snapshotsRaw);
+      }catch{}
+      clearUndo();
+      location.reload();
+    };
+
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = '×';
+    close.className = 'btn btn--ghost';
+    close.style.padding = '6px 10px';
+    close.onclick = clearUndo;
+
+    el.appendChild(msg);
+    el.appendChild(btn);
+    el.appendChild(close);
+    document.body.appendChild(el);
+  }
+
+  const msg = $('#_undo_msg');
+  const tick = ()=>{
+    const left = Math.max(0, Math.ceil((r.expiresAt - Date.now())/1000));
+    if(left <= 0){ clearUndo(); return; }
+    msg.textContent = `${r.label || 'Change'} cleared. Undo? (${left}s)`;
+  };
+  tick();
+  clearInterval(el._i);
+  el._i = setInterval(tick, 250);
+}
+
 // ---- Timer ----
 function setTimerMinutes(min){
   const sec = clamp(min, 5, 180) * 60;
@@ -484,10 +620,22 @@ function logSession(pagesRead, moodAfter){
 }
 
 function clearSessions(){
-  if(!confirm('Clear ALL session logs? This cannot be undone.')) return;
+  if(!confirm('Clear ALL session logs? You’ll have 30 seconds to undo.')) return;
+
+  const mainRaw = localStorage.getItem(STORAGE_KEY) || '';
+  const snapshotsRaw = localStorage.getItem(SNAPSHOTS_KEY) || '[]';
+  setUndoRecord({
+    label: 'Sessions',
+    at: Date.now(),
+    expiresAt: Date.now() + UNDO_TTL_MS,
+    mainRaw,
+    snapshotsRaw,
+  });
+
   state.sessions = [];
   save();
   render();
+  showUndoBanner();
 }
 
 // ---- Share link ----
@@ -1023,6 +1171,34 @@ function escapeHtml(s){
   }[c]));
 }
 
+function renderRestorePoints(){
+  const box = $('#restorePoints');
+  if(!box) return;
+
+  const list = pruneSnapshots(readJSON(SNAPSHOTS_KEY, []));
+  if(list.length === 0){
+    box.innerHTML = '<p class="muted">No restore points yet. They appear automatically after you save changes.</p>';
+    return;
+  }
+
+  box.innerHTML = `
+    <ul class="restoreList">
+      ${list.map((s, idx)=>{
+        const when = fmtDate(s.at || Date.now());
+        return `
+          <li class="restoreList__item">
+            <div class="restoreList__meta">
+              <div class="restoreList__title">${escapeHtml(when)}</div>
+              <div class="muted">Restore point #${list.length - idx}</div>
+            </div>
+            <button class="btn btn--ghost" type="button" data-restore="${idx}">Restore</button>
+          </li>
+        `;
+      }).join('')}
+    </ul>
+  `;
+}
+
 function render(){
   renderNow();
   renderPrompt();
@@ -1030,12 +1206,14 @@ function render(){
   renderStats();
   renderSessions();
   renderShelf();
+  renderRestorePoints();
   drawCard();
 }
 
 // ---- Events ----
 function wire(){
   tryLoadSnapshotFromHash();
+  showUndoBanner();
 
   // shelf filters
   const shelfSearch = $('#shelfSearch');
@@ -1264,9 +1442,46 @@ function wire(){
     e.target.value = '';
   });
 
+  const restorePoints = $('#restorePoints');
+  if(restorePoints){
+    restorePoints.addEventListener('click', (e)=>{
+      const b = e.target.closest('button[data-restore]');
+      if(!b) return;
+      const idx = safeInt(b.getAttribute('data-restore')) ?? -1;
+      const list = pruneSnapshots(readJSON(SNAPSHOTS_KEY, []));
+      const snap = list[idx];
+      if(!snap?.raw) return;
+      if(!confirm('Restore this snapshot? Your current local data will be replaced.')) return;
+      try{ localStorage.setItem(STORAGE_KEY, snap.raw); }catch{}
+      location.reload();
+    });
+  }
+
+  const btnClearRestorePoints = $('#btnClearRestorePoints');
+  if(btnClearRestorePoints){
+    btnClearRestorePoints.addEventListener('click', ()=>{
+      if(!confirm('Delete all restore points? This only removes snapshots, not your current data.')) return;
+      try{ localStorage.removeItem(SNAPSHOTS_KEY); }catch{}
+      renderRestorePoints();
+      toast('Restore points cleared.');
+    });
+  }
+
   $('#btnNuke').addEventListener('click', ()=>{
-    if(!confirm('Delete ALL local data for Sloth Reading Nest? This cannot be undone.')) return;
+    if(!confirm('Delete ALL local data for Sloth Reading Nest? You’ll have 30 seconds to undo.')) return;
+
+    const mainRaw = localStorage.getItem(STORAGE_KEY) || '';
+    const snapshotsRaw = localStorage.getItem(SNAPSHOTS_KEY) || '[]';
+    setUndoRecord({
+      label: 'Local data',
+      at: Date.now(),
+      expiresAt: Date.now() + UNDO_TTL_MS,
+      mainRaw,
+      snapshotsRaw,
+    });
+
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(SNAPSHOTS_KEY);
     location.reload();
   });
 
