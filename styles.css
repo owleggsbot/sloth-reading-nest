@@ -105,6 +105,24 @@ label{display:flex; flex-direction:column; gap:6px; font-size:13px; color: var(-
 .details summary{cursor:pointer; color: var(--muted); font-weight:700}
 .details{margin-top:12px}
 
+.history{margin-top:10px}
+.historyFilters{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.historyFilters > *{flex: 1 1 190px}
+.historyFilters > button{flex: 0 0 auto}
+.historySummary{
+  margin-top:10px;
+  padding:10px 12px;
+  border-radius: 16px;
+  border:1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  color: var(--muted);
+  font-size:13px;
+}
+
 .now{
   min-height:112px;
   border:1px dashed rgba(233,242,236,.22);
